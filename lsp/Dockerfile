@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       wget \
       gnupg \
+      lsb-release \
       unzip \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -26,9 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # project's own apt repo instead of waiting on Debian to backport a newer one.
 RUN wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
     && chmod +x /tmp/llvm.sh \
-    && /tmp/llvm.sh 21 \
-    && apt-get install -y --no-install-recommends clangd-21 \
-    && ln -sf /usr/bin/clangd-21 /usr/local/bin/clangd \
+    && /tmp/llvm.sh 22 \
+    && apt-get install -y --no-install-recommends clangd-22 \
+    && ln -sf /usr/bin/clangd-22 /usr/local/bin/clangd \
     && rm -f /tmp/llvm.sh \
     && rm -rf /var/lib/apt/lists/*
 
