@@ -60,6 +60,12 @@ SET name = 'Bash (5.3)',
     run_cmd = '/usr/bin/bash script.sh'
 WHERE id = 46;
 
+-- Judge0's own seed script inserts its 89 default languages with explicit
+-- ids (1..89) via raw SQL, which never advances languages_id_seq - it's
+-- still at 1, so a plain auto-increment INSERT below would collide with an
+-- existing row. Bring the sequence in line with reality first.
+SELECT setval('languages_id_seq', (SELECT MAX(id) FROM languages));
+
 -- MariaDB: no existing Judge0 language for it (SQL id 82 is SQLite, a
 -- single-file embedded db - MariaDB needs an actual running server). Spin up
 -- a private, disposable mariadbd per submission inside the sandbox's own box

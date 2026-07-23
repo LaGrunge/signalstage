@@ -2,13 +2,20 @@ import { Router } from "express";
 import axios from "axios";
 import { roomExists } from "./db.js";
 
-// Judge0 CE's stable built-in language ids (verify against your instance's
-// GET /languages if you customize the Judge0 image/build).
+// judge0/Dockerfile builds this deployment's own Judge0 image (Ubuntu 26.04,
+// not upstream's Debian-buster judge0/compilers), so these ids/versions are
+// specific to judge0/fixups.sql, not upstream Judge0 CE's defaults - verify
+// against this instance's own GET /languages if you change either.
 export const LANGUAGES = [
-  { key: "cpp", label: "C++ (GCC 9.2.0)", judge0Id: 54 },
-  { key: "python", label: "Python (3.8.1)", judge0Id: 71 },
-  { key: "go", label: "Go (1.13.5)", judge0Id: 60 },
-  { key: "java", label: "Java (OpenJDK 13.0.1)", judge0Id: 62 },
+  { key: "cpp", label: "C++ (GCC 15, C++23)", judge0Id: 54 },
+  { key: "python", label: "Python (3.14)", judge0Id: 71 },
+  { key: "go", label: "Go (1.26)", judge0Id: 60 },
+  { key: "java", label: "Java (OpenJDK 25)", judge0Id: 62 },
+  { key: "bash", label: "Bash (5.3)", judge0Id: 46 },
+  // mariadbd needs ~1-2s to initialize + start inside the sandbox on top of
+  // actual query time - give it more wall-clock room than the other
+  // languages (default 10s) rather than raising it globally in judge0.conf.
+  { key: "mariadb", label: "MariaDB (11.8)", judge0Id: 90, wallTimeLimit: 15 },
 ];
 
 const LANGUAGE_BY_KEY = Object.fromEntries(LANGUAGES.map((l) => [l.key, l]));
@@ -49,6 +56,7 @@ router.post("/execute", async (req, res) => {
       source_code: b64(code),
       language_id: lang.judge0Id,
       stdin: b64(stdin || ""),
+      ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
     }, { params: { base64_encoded: "true", wait: "true" } });
 
     res.json({
