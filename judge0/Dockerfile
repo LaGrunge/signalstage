@@ -80,7 +80,13 @@ RUN echo "gem: --no-document" > /root/.gemrc && \
     gem install bundler:2.1.4
 
 WORKDIR /api
-RUN git clone --depth 1 --branch v1.13.1 https://github.com/judge0/judge0.git /api
+# `git clone` (unlike upstream's own COPY . . + .dockerignore, which excludes
+# judge0.conf from the build) pulls the repo's own blank judge0.conf template
+# straight into /api/judge0.conf - scripts/load-config checks /api/judge0.conf
+# before the docker-compose-mounted /judge0.conf, so it silently shadows our
+# real config (empty POSTGRES_PASSWORD etc.) unless removed.
+RUN git clone --depth 1 --branch v1.13.1 https://github.com/judge0/judge0.git /api && \
+    rm -f /api/judge0.conf
 
 RUN RAILS_ENV=production bundle _2.1.4_
 
