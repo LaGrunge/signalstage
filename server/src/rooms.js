@@ -11,7 +11,7 @@ const PREVIEW_LENGTH = 400;
 
 function roomPreview(room) {
   const live = getLiveDocument(room.id);
-  const code = live ? live.getText("code").toString() : room.initial_code || "";
+  const code = live ? live.getText("code").toString() : room.last_code ?? room.initial_code ?? "";
   return code.slice(0, PREVIEW_LENGTH);
 }
 
@@ -41,14 +41,14 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, title, language, active, created_at, last_active_at, initial_code
+    `SELECT id, title, language, active, created_at, last_active_at, initial_code, last_code
      FROM rooms WHERE created_by = $1 AND active = true ORDER BY last_active_at DESC`,
     [req.user.sub]
   );
   res.json(
     rows.map((room) => {
       const preview = roomPreview(room);
-      const { initial_code, ...rest } = room;
+      const { initial_code, last_code, ...rest } = room;
       return { ...rest, preview };
     })
   );

@@ -30,11 +30,18 @@ export function startCollabServer() {
       return document;
     },
 
-    // Hocuspocus debounces this itself (a few seconds after edits settle),
-    // so it's safe to hit Postgres here instead of on every keystroke - used
-    // to sort/label dashboard cards by actual recent activity.
-    async onStoreDocument({ documentName }) {
-      await pool.query("UPDATE rooms SET last_active_at = now() WHERE id = $1", [documentName]);
+    // Hocuspocus debounces this itself (a few seconds after edits settle) and
+    // also fires it once more right before unloading an idle document, so
+    // this is the last chance to persist its content before the in-memory
+    // doc disappears - store both the activity timestamp and a text
+    // snapshot (dashboard previews fall back to this once nobody's connected
+    // and Hocuspocus has evicted the live document).
+    async onStoreDocument({ documentName, document }) {
+      const code = document.getText("code").toString();
+      await pool.query(
+        "UPDATE rooms SET last_active_at = now(), last_code = $2 WHERE id = $1",
+        [documentName, code]
+      );
     },
   });
 
