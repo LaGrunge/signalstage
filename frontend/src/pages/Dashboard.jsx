@@ -10,9 +10,11 @@ export default function Dashboard() {
   const [language, setLanguage] = useState("python");
   const [languages, setLanguages] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [problems, setProblems] = useState([]);
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState(null);
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(null);
+  const [creatingFromProblem, setCreatingFromProblem] = useState(null);
   const navigate = useNavigate();
   const user = getUser();
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
@@ -28,10 +30,16 @@ export default function Dashboard() {
     setTemplates(data);
   }
 
+  async function loadProblems() {
+    const { data } = await api.get("/problems");
+    setProblems(data);
+  }
+
   useEffect(() => {
     api.get("/languages").then(({ data }) => setLanguages(data));
     loadRooms().catch(() => setError("Failed to load sessions"));
     loadTemplates().catch(() => setError("Failed to load templates"));
+    loadProblems().catch(() => setError("Failed to load problems"));
   }, []);
 
   async function createRoom(e) {
@@ -56,6 +64,18 @@ export default function Dashboard() {
     } catch {
       setError("Failed to create session from template");
       setCreatingFromTemplate(null);
+    }
+  }
+
+  async function createFromProblem(problem) {
+    setError("");
+    setCreatingFromProblem(problem.id);
+    try {
+      const { data } = await api.post("/rooms", { language, problemId: problem.id });
+      navigate(`/room/${data.id}`);
+    } catch {
+      setError("Failed to create session from problem");
+      setCreatingFromProblem(null);
     }
   }
 
@@ -124,6 +144,9 @@ export default function Dashboard() {
       <header>
         <img className="logo" src="/signalstage-logo.png" alt="SignalStage" />
         <div>
+          <button className="link" onClick={() => navigate("/problems")}>
+            Problem bank
+          </button>
           <span className="muted">{user?.name}</span>
           <button className="link" onClick={logout}>
             Sign out
@@ -215,6 +238,29 @@ export default function Dashboard() {
           />
         ))}
         {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
+      </CardGrid>
+
+      <h2>Problems</h2>
+      <p className="muted">
+        Structured tasks with automated tests - manage the full set (description, starter code, reference
+        solutions, tests) in the <button className="link" onClick={() => navigate("/problems")}>Problem bank</button>.
+        Click a card to start a new session from it.
+      </p>
+      <CardGrid>
+        {problems.map((p) => (
+          <PreviewCard
+            key={p.id}
+            title={p.title}
+            preview={p.description}
+            footer={
+              creatingFromProblem === p.id
+                ? "Creating session…"
+                : `${p.functionName} · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`
+            }
+            onClick={() => createFromProblem(p)}
+          />
+        ))}
+        {problems.length === 0 && <div className="muted">No problems yet</div>}
       </CardGrid>
     </div>
   );

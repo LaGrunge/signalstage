@@ -128,8 +128,51 @@ already bit us here:
   the color formats `isSafeCssColor` allows. If you touch this again, don't
   reintroduce string-suffix alpha tricks on a color of unknown format.
 
+## Interview problems and automated tests
+
+Problems (`server/src/problems.js`, `server/migrations/008_problems.sql`)
+and their test-running pipeline (`server/src/testRunner.js`,
+`server/src/testHarness/*.js`) are additive alongside `templates` — a room
+references *either* `template_id` (quick, free-form starter code, no tests)
+*or* `problem_id` (structured task: description, per-language starters,
+reference solutions, test cases), not both. See README's "Automated tests
+for problems" for the actual execution model (server-generated per-language
+test drivers, submitted through the same Judge0 `/execute` flow, no new
+Judge0 feature surface). Read that before touching anything under
+`server/src/testHarness/` — the design deliberately avoids `additional_files`
+and runtime JSON parsing in Go/C++/Java specifically to not repeat the
+Judge0 sandbox saga below on a new corner of it.
+
+The trickiest piece if you extend this: `server/src/testHarness/cpp.js`
+materializes every test-case argument into a **named local variable**
+before calling the candidate's function, instead of passing literal values
+inline. A literal like `vector<int>{1,2,3}` is an rvalue and won't bind to
+a candidate signature taking `vector<int>&` (a common style, e.g. LeetCode's
+own C++ signatures use `&`) — only a named variable is an lvalue that can.
+Found by actually compiling generated output with `g++`, not by inspection;
+if you touch the C++ harness, recompile a real generated sample rather than
+trusting it by eye.
+
+`bash`/`mariadb` have no test harness - a shell script or a single SQL
+statement doesn't fit the "candidate implements one function" model. The
+v1 type system is also deliberately flat (no nested objects/structs) and
+float/double equality is exact-match (no epsilon tolerance) - both documented
+as gaps below, not oversights to quietly fix without discussion.
+
 ## Known gaps / not done
 
+- **Automated tests: no nested types, exact float equality.** The v1 param/
+  return type system (`server/src/testHarness/types.js`) is `int`, `double`,
+  `bool`, `string`, and single-level arrays of each - no nested
+  objects/structs, and `double` comparisons are exact-match (no epsilon).
+  Expand `types.js` and every `testHarness/*.js` module together if this
+  needs to grow; don't add a new type to only one language's module.
+- **No markdown rendering for problem descriptions.** `Room.jsx`'s Task
+  panel renders `problem.description` as plain preformatted text
+  (`white-space: pre-wrap`), not parsed markdown - no `react-markdown` (or
+  equivalent) dependency has been added yet. Fine for plain-text task
+  descriptions; add the dependency if descriptions start using real
+  markdown syntax that needs to render, not just line breaks.
 - **No LSP for MariaDB.** `sql-language-server` (the only maintained generic
   SQL LSP on npm) crashes on startup on every currently-installable version
   — a real bug in that package, not this codebase. Monaco still gets SQL

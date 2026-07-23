@@ -17,7 +17,7 @@ frontend (nginx, static React build)
   └── /lsp/*   → lsp (:3001)                — LSP websocket bridge
                        │
                        ▼
-                 postgres (users, rooms, templates, submissions)
+                 postgres (users, rooms, templates, submissions, problems, test_runs)
                        │
         api ── signalstage_net ──► judge0-server (:2358) ──► judge0 workers
                                           │
@@ -53,6 +53,51 @@ frontend (nginx, static React build)
   text selection (colored highlight) live, via `y-monaco`'s awareness
   decorations — `CollabEditor.jsx` generates the actual colors/labels/CSS
   itself, since `y-monaco` only assigns bare classNames and renders nothing.
+- Interviewers can also build **problems** (Dashboard's "Problem bank"):
+  a title, a markdown-ish description, per-language starter code, one or
+  more reference solutions (authoring-time only), and test cases (public
+  examples + hidden cases). Attaching a problem to a room swaps the plain
+  "Run" flow for **Run tests** (public cases only) / **Submit** (every
+  case, graded, recorded) — see "Automated tests for problems" below for
+  how this actually executes candidate code against test cases without any
+  Judge0/Docker changes.
+
+## Automated tests for problems
+
+Candidates implement a single function (not a whole program) matching a
+problem's declared signature — a name, parameter types, and a return type
+drawn from a deliberately small set: `int`, `double`, `bool`, `string`, and
+single-level arrays of each (`int[]`, `double[]`, `string[]`). No nested
+objects/structs in v1.
+
+`server/src/testHarness/{python,go,cpp,java}.js` each turn a problem's test
+cases into a small generated "driver" program: it embeds each test case's
+arguments/expected value as a **native literal** in that language (not
+runtime JSON parsing — for Go/Java/C++ this means no JSON library is ever
+needed in the sandbox), calls the candidate's function, compares the result,
+catches per-case exceptions so one crashing case doesn't take down the rest,
+and prints one JSON result line per case between two unique markers
+(`server/src/testHarness/markers.js`). `server/src/testRunner.js` submits
+`candidate code + generated driver` as a single source string through the
+**exact same** `/submissions` Judge0 flow `/execute` already uses
+(`base64_encoded=true, wait=true`) — deliberately no `additional_files`,
+no `judge0.conf` changes, no Dockerfile changes. This was a scope call: the
+Judge0 sandbox has already eaten enough time in this project's history (see
+below) to not open a new feature surface on it unless there's no other way.
+
+bash and mariadb are **not supported** for tests — a shell script or a
+single SQL statement doesn't fit the "candidate implements one function"
+model these harnesses assume.
+
+Reference solutions (`problem_solutions`) exist purely so an interviewer can
+click "Validate all solutions against tests" while authoring a problem and
+catch a wrong expected value or an ambiguous problem *before* a candidate
+ever sees it (`POST /problems/:id/validate`) — they're never shown to or
+run for candidates. Hidden test cases are also never sent to a candidate's
+browser at all (not just hidden client-side) — `GET /rooms/:id/problem`
+only ever selects non-hidden cases, and `POST /rooms/:id/tests` strips
+hidden-case detail down to `{name, passed}` in the response itself for
+anyone who isn't the room's owner.
 
 ## Quick start
 
@@ -380,3 +425,12 @@ on it in a real interview.
    button greys out live; re-enable and confirm it's usable again.
 7. Run some code as a "candidate" (second tab, no login) and confirm the
    interviewer's tab shows the "running code" indicator while it executes.
+8. Create a problem in the Problem bank (function name/params/return type,
+   a correct and an incorrect reference solution, a public and a hidden test
+   case), click "Validate all solutions against tests", and confirm the
+   correct solution passes all cases and the incorrect one fails at least
+   one. Attach it to a room, confirm "Run tests" only returns the public
+   case, "Submit" returns all cases with the hidden one's args/expected/
+   actual redacted for the candidate tab but fully visible in the
+   interviewer's, and the "Disable candidate tests" toggle actually hides
+   both buttons for the candidate.

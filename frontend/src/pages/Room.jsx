@@ -28,10 +28,16 @@ export default function Room() {
   const [templates, setTemplates] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [submissions, setSubmissions] = useState([]);
-  const [leftPanel, setLeftPanel] = useState(null); // null | "templates" | "versions"
+  const [leftPanel, setLeftPanel] = useState(null); // null | "templates" | "versions" | "problems"
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [runEnabled, setRunEnabled] = useState(true);
   const [savedAt, setSavedAt] = useState(null);
+  const [problem, setProblem] = useState(null);
+  const [problems, setProblems] = useState([]);
+  const [testsEnabled, setTestsEnabled] = useState(true);
+  const [testResults, setTestResults] = useState(null);
+  const [testsRunning, setTestsRunning] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(true);
 
   // Templates/versions/the run-permission toggle are the interviewer's own
   // tools - gated on actually owning *this* room (created_by), not just on
@@ -40,6 +46,7 @@ export default function Room() {
   const currentUser = getUser();
   const isInterviewer = Boolean(currentUser) && room?.createdBy === currentUser.id;
   const runAllowedForMe = isInterviewer || runEnabled;
+  const testsAllowedForMe = isInterviewer || testsEnabled;
   const runningOthers = participants.filter((p) => p.running && p.name !== userName);
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
   const sharedTemplates = templates.filter((t) => t.shared);
@@ -49,6 +56,20 @@ export default function Room() {
       .get("/templates")
       .then(({ data }) => setTemplates(data))
       .catch(() => {});
+  }
+
+  function refreshProblems() {
+    return api
+      .get("/problems")
+      .then(({ data }) => setProblems(data))
+      .catch(() => {});
+  }
+
+  function refreshRoomProblem() {
+    return api
+      .get(`/rooms/${roomId}/problem`)
+      .then(({ data }) => setProblem(data))
+      .catch(() => setProblem(null));
   }
 
   function refreshSubmissions() {
@@ -65,8 +86,13 @@ export default function Room() {
         setRoom(data);
         setLanguage(data.language);
         setRunEnabled(data.runEnabled ?? true);
+        setTestsEnabled(data.testsEnabled ?? true);
         const loggedInUser = getUser();
-        if (loggedInUser && loggedInUser.id === data.createdBy) refreshTemplates();
+        if (loggedInUser && loggedInUser.id === data.createdBy) {
+          refreshTemplates();
+          refreshProblems();
+        }
+        if (data.problemId) refreshRoomProblem();
       })
       .catch(() => setNotFound(true));
     api.get("/languages").then(({ data }) => setLanguages(data));
@@ -97,6 +123,7 @@ export default function Room() {
       const lang = config.get("language");
       if (lang) setLanguage(lang);
       setRunEnabled(config.get("runEnabled") ?? true);
+      setTestsEnabled(config.get("testsEnabled") ?? true);
     };
     config.observe(onUpdate);
     onUpdate();
@@ -165,6 +192,41 @@ export default function Room() {
     }
   }
 
+  async function toggleTestsEnabled() {
+    try {
+      const { data } = await api.patch(`/rooms/${roomId}`, { testsEnabled: !testsEnabled });
+      ydoc.getMap("config").set("testsEnabled", data.testsEnabled);
+    } catch {
+      window.alert("Failed to update test permission");
+    }
+  }
+
+  // Mirrors insertTemplate: attaching a problem seeds the live editor from
+  // that problem's starter for the room's current language (if it has one)
+  // - the server only records which problem is attached, it doesn't touch
+  // the live Yjs document itself.
+  async function attachProblem(summary) {
+    if (!window.confirm(`Attach "${summary.title}" as this room's task? This replaces the current code.`)) return;
+    try {
+      const { data: full } = await api.get(`/problems/${summary.id}`);
+      const { data: updatedRoom } = await api.patch(`/rooms/${roomId}`, { problemId: full.id });
+      setRoom((r) => ({ ...r, problemId: updatedRoom.problemId }));
+      setProblem({ ...full, publicTests: full.tests.filter((t) => !t.isHidden) });
+      setTestResults(null);
+      const starter = full.starters.find((s) => s.language === language);
+      if (starter) {
+        const ytext = ydoc.getText("code");
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, starter.code);
+        });
+      }
+      setLeftPanel(null);
+    } catch {
+      window.alert("Failed to attach problem");
+    }
+  }
+
   function insertTemplate(template) {
     if (!window.confirm(`Replace the current code with "${template.title}"?`)) return;
     const ytext = ydoc.getText("code");
@@ -214,6 +276,24 @@ export default function Room() {
       setOutput({ error: err.response?.data?.error || "Failed to run code" });
     } finally {
       setRunning(false);
+      provider?.setAwarenessField("running", false);
+    }
+  }
+
+  // mode: "run" (public example cases only, fast feedback) vs "submit"
+  // (every case including hidden ones, graded and recorded).
+  async function runTestsAction(mode) {
+    setTestsRunning(true);
+    setTestResults(null);
+    provider?.setAwarenessField("running", true);
+    try {
+      const code = ydoc.getText("code").toString();
+      const { data } = await api.post(`/rooms/${roomId}/tests`, { code, mode, submittedBy: userName });
+      setTestResults(data);
+    } catch (err) {
+      setTestResults({ error: err.response?.data?.error || "Failed to run tests" });
+    } finally {
+      setTestsRunning(false);
       provider?.setAwarenessField("running", false);
     }
   }
@@ -277,9 +357,14 @@ export default function Room() {
             {runningOthers.map((p) => p.name).join(", ")} running code…
           </span>
         )}
-        {isInterviewer && (
+        {isInterviewer && !room.problemId && (
           <button className="link" onClick={toggleRunEnabled}>
             {runEnabled ? "Disable candidate run" : "Enable candidate run"}
+          </button>
+        )}
+        {isInterviewer && room.problemId && (
+          <button className="link" onClick={toggleTestsEnabled}>
+            {testsEnabled ? "Disable candidate tests" : "Enable candidate tests"}
           </button>
         )}
         <select value={language} onChange={(e) => changeLanguage(e.target.value)}>
@@ -292,9 +377,28 @@ export default function Room() {
         <button onClick={saveCode} title="Download code as a file (Ctrl+S)">
           {savedAt ? "Saved" : "💾 Save"}
         </button>
-        <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : ""}>
-          {running ? "Running…" : "▶ Run"}
-        </button>
+        {room.problemId ? (
+          <>
+            <button
+              onClick={() => runTestsAction("run")}
+              disabled={testsRunning || !testsAllowedForMe}
+              title={!testsAllowedForMe ? "Tests disabled by interviewer" : "Run the public example cases"}
+            >
+              {testsRunning ? "Running…" : "▶ Run tests"}
+            </button>
+            <button
+              onClick={() => runTestsAction("submit")}
+              disabled={testsRunning || !testsAllowedForMe}
+              title={!testsAllowedForMe ? "Tests disabled by interviewer" : "Run every test case, including hidden ones"}
+            >
+              {testsRunning ? "Running…" : "Submit"}
+            </button>
+          </>
+        ) : (
+          <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : ""}>
+            {running ? "Running…" : "▶ Run"}
+          </button>
+        )}
       </header>
 
       <div className="room-body">
@@ -314,13 +418,24 @@ export default function Room() {
             >
               🕘
             </button>
+            <button
+              className={`icon-btn ${leftPanel === "problems" ? "active" : ""}`}
+              onClick={() => openPanel("problems")}
+              title="Attach a problem"
+            >
+              🧪
+            </button>
           </div>
         )}
 
         {leftPanel && (
           <div className="side-panel">
             <div className="side-panel-header">
-              <strong>{leftPanel === "templates" ? "Insert template" : "Code versions"}</strong>
+              <strong>
+                {leftPanel === "templates" && "Insert template"}
+                {leftPanel === "versions" && "Code versions"}
+                {leftPanel === "problems" && "Attach a problem"}
+              </strong>
               {leftPanel === "templates" && (
                 <button className="link" onClick={saveAsTemplate} disabled={savingTemplate}>
                   {savingTemplate ? "Saving…" : "Save current as template"}
@@ -363,6 +478,24 @@ export default function Room() {
                   </CardGrid>
                 </>
               )}
+              {leftPanel === "problems" && (
+                <CardGrid>
+                  {problems.map((p) => (
+                    <PreviewCard
+                      key={p.id}
+                      title={p.title}
+                      preview={p.description}
+                      footer={`${p.functionName} · refreshed ${formatRelativeTime(p.updated_at)}`}
+                      onClick={() => attachProblem(p)}
+                    />
+                  ))}
+                  {problems.length === 0 && (
+                    <div className="muted">
+                      No problems yet - create one from the dashboard's Problem Bank.
+                    </div>
+                  )}
+                </CardGrid>
+              )}
               {leftPanel === "versions" && (
                 <CardGrid>
                   {submissions.map((s) => (
@@ -383,44 +516,117 @@ export default function Room() {
         )}
 
         <div className="editor-pane">
-          <CollabEditor ydoc={ydoc} provider={provider} language={language} userName={userName} />
+          {problem && (
+            <div className="task-panel">
+              <div className="task-panel-header" onClick={() => setTaskOpen((o) => !o)}>
+                <strong>📋 {problem.title}</strong>
+                <span className="link">{taskOpen ? "Hide" : "Show"}</span>
+              </div>
+              {taskOpen && (
+                <div className="task-panel-body">
+                  <p className="task-description">{problem.description}</p>
+                  {problem.publicTests?.length > 0 && (
+                    <>
+                      <h4 className="side-panel-subheading">Examples</h4>
+                      {problem.publicTests.map((t) => (
+                        <div key={t.id} className="task-example">
+                          <strong>{t.name}</strong>
+                          <div className="muted">args: {JSON.stringify(t.args)}</div>
+                          <div className="muted">expected: {JSON.stringify(t.expected)}</div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="editor-pane-editor">
+            <CollabEditor ydoc={ydoc} provider={provider} language={language} userName={userName} />
+          </div>
         </div>
         <div className="io-pane">
-          <div className="io-block">
-            <label>stdin</label>
-            <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} rows={6} />
-          </div>
-          <div className="io-block output">
-            <label>Output</label>
-            {output?.error && (
-              <pre className="error">
-                <Ansi>{output.error}</Ansi>
-              </pre>
-            )}
-            {output && !output.error && (
-              <>
-                <div className="muted">
-                  {output.status?.description} · {output.time ?? "?"}s · {output.memory ?? "?"}KB
-                </div>
-                {output.compileOutput && (
-                  <pre className="compile">
-                    <Ansi>{output.compileOutput}</Ansi>
+          {room.problemId ? (
+            <div className="io-block output">
+              <label>Test results</label>
+              {testResults?.error && (
+                <pre className="error">
+                  <Ansi>{testResults.error}</Ansi>
+                </pre>
+              )}
+              {testResults && !testResults.error && (
+                <>
+                  <div className="muted">
+                    {testResults.mode === "run" ? "Run (examples only)" : "Submit (all cases)"} ·{" "}
+                    {testResults.passedCount}/{testResults.totalCount} passed
+                  </div>
+                  {testResults.compileOutput && (
+                    <pre className="compile">
+                      <Ansi>{testResults.compileOutput}</Ansi>
+                    </pre>
+                  )}
+                  <div className="test-case-list">
+                    {testResults.results.map((r, i) => (
+                      <div key={r.id || i} className={`test-case ${r.passed ? "passed" : "failed"}`}>
+                        <div className="test-case-title">
+                          {r.passed ? "✅" : "❌"} {r.name}
+                          {r.isHidden && r.args === undefined ? " (hidden)" : ""}
+                        </div>
+                        {r.args !== undefined && (
+                          <div className="muted">
+                            args: {JSON.stringify(r.args)} · expected: {JSON.stringify(r.expected)}
+                          </div>
+                        )}
+                        {r.actual !== undefined && r.actual !== null && (
+                          <div className="muted">actual: {r.actual}</div>
+                        )}
+                        {r.error && <div className="test-case-error">{r.error}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {!testResults && <div className="muted">Click "Run tests" or "Submit" to see results</div>}
+            </div>
+          ) : (
+            <>
+              <div className="io-block">
+                <label>stdin</label>
+                <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} rows={6} />
+              </div>
+              <div className="io-block output">
+                <label>Output</label>
+                {output?.error && (
+                  <pre className="error">
+                    <Ansi>{output.error}</Ansi>
                   </pre>
                 )}
-                {output.stdout && (
-                  <pre>
-                    <Ansi>{output.stdout}</Ansi>
-                  </pre>
+                {output && !output.error && (
+                  <>
+                    <div className="muted">
+                      {output.status?.description} · {output.time ?? "?"}s · {output.memory ?? "?"}KB
+                    </div>
+                    {output.compileOutput && (
+                      <pre className="compile">
+                        <Ansi>{output.compileOutput}</Ansi>
+                      </pre>
+                    )}
+                    {output.stdout && (
+                      <pre>
+                        <Ansi>{output.stdout}</Ansi>
+                      </pre>
+                    )}
+                    {output.stderr && (
+                      <pre className="stderr">
+                        <Ansi>{output.stderr}</Ansi>
+                      </pre>
+                    )}
+                  </>
                 )}
-                {output.stderr && (
-                  <pre className="stderr">
-                    <Ansi>{output.stderr}</Ansi>
-                  </pre>
-                )}
-              </>
-            )}
-            {!output && <div className="muted">Click "Run" to see the output</div>}
-          </div>
+                {!output && <div className="muted">Click "Run" to see the output</div>}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import axios from "axios";
 import { pool } from "./db.js";
 import { optionalAuth } from "./auth.js";
+import { getRoomAccess } from "./roomAccess.js";
 
 // judge0/Dockerfile builds this deployment's own Judge0 image (Ubuntu 26.04,
 // not upstream's Debian-buster judge0/compilers) and bakes these language
@@ -40,6 +41,37 @@ const judge0 = axios.create({
 const b64 = (s) => Buffer.from(s ?? "", "utf8").toString("base64");
 const unb64 = (s) => (s ? Buffer.from(s, "base64").toString("utf8") : "");
 
+// Shared by plain /execute and the test-runner (server/src/testRunner.js) -
+// same Judge0 submission shape either way, the only difference is what
+// source string gets submitted (the candidate's file as-is, vs. that file
+// wrapped in a generated test-driver).
+export async function submitToJudge0(languageKey, sourceCode, stdin) {
+  const lang = LANGUAGE_BY_KEY[languageKey];
+  if (!lang) throw new Error(`unsupported language: ${languageKey}`);
+
+  const { data } = await judge0.post(
+    "/submissions",
+    {
+      source_code: b64(sourceCode),
+      language_id: lang.judge0Id,
+      stdin: b64(stdin || ""),
+      ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
+      ...(lang.maxFileSize ? { max_file_size: lang.maxFileSize } : {}),
+    },
+    { params: { base64_encoded: "true", wait: "true" } }
+  );
+
+  return {
+    status: data.status,
+    stdout: unb64(data.stdout),
+    stderr: unb64(data.stderr),
+    compileOutput: unb64(data.compile_output),
+    message: unb64(data.message),
+    time: data.time,
+    memory: data.memory,
+  };
+}
+
 export const router = Router();
 
 router.get("/languages", (_req, res) => {
@@ -48,24 +80,18 @@ router.get("/languages", (_req, res) => {
 
 router.post("/execute", optionalAuth, async (req, res) => {
   const { roomId, language, code, stdin, submittedBy } = req.body || {};
-  const lang = LANGUAGE_BY_KEY[language];
 
-  const { rows: roomRows } = await pool.query(
-    "SELECT created_by, run_enabled FROM rooms WHERE id = $1 AND active = true",
-    [roomId || null]
-  );
-  const room = roomRows[0];
-  if (!room) {
+  const access = await getRoomAccess(roomId, req.user?.sub);
+  if (!access) {
     return res.status(404).json({ error: "room not found" });
   }
   // The "Disable candidate run" toggle only needs to bind non-owners - the
   // interviewer who owns this room can always run, same as before the
   // toggle existed.
-  const isOwner = req.user?.sub === room.created_by;
-  if (!isOwner && !room.run_enabled) {
+  if (!access.isOwner && !access.room.run_enabled) {
     return res.status(403).json({ error: "run disabled by interviewer" });
   }
-  if (!lang) {
+  if (!LANGUAGE_BY_KEY[language]) {
     return res.status(400).json({ error: `unsupported language: ${language}` });
   }
   if (typeof code !== "string" || !code.trim()) {
@@ -73,23 +99,7 @@ router.post("/execute", optionalAuth, async (req, res) => {
   }
 
   try {
-    const { data } = await judge0.post("/submissions", {
-      source_code: b64(code),
-      language_id: lang.judge0Id,
-      stdin: b64(stdin || ""),
-      ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
-      ...(lang.maxFileSize ? { max_file_size: lang.maxFileSize } : {}),
-    }, { params: { base64_encoded: "true", wait: "true" } });
-
-    const result = {
-      status: data.status,
-      stdout: unb64(data.stdout),
-      stderr: unb64(data.stderr),
-      compileOutput: unb64(data.compile_output),
-      message: unb64(data.message),
-      time: data.time,
-      memory: data.memory,
-    };
+    const result = await submitToJudge0(language, code, stdin);
 
     // Every attempt, not just successful ones - the version history panel is
     // most useful for showing an interviewer exactly what a candidate tried

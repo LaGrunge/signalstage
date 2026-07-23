@@ -62,6 +62,19 @@ button.link.danger { color: #f28b82; }
 .new-room { display: flex; gap: 8px; margin-bottom: 24px; }
 .new-room input { flex: 1; }
 
+.problem-editor { display: flex; flex-direction: column; gap: 8px; max-width: 700px; }
+.problem-editor label { font-size: 12px; color: #8a8aa3; text-transform: uppercase; margin-top: 12px; }
+.problem-editor-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.problem-signature-row, .problem-param-row, .problem-solution-row, .problem-test-row {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 4px;
+}
+.problem-test-args { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.problem-test-args input { flex: 1; min-width: 120px; }
+.problem-starter-block, .problem-solution-block, .problem-test-block {
+  border: 1px solid #33334a; border-radius: 8px; padding: 10px; margin-bottom: 8px;
+}
+.problem-solution-block textarea, .problem-starter-block textarea { font-family: monospace; }
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -307,8 +320,29 @@ button.link.danger { color: #f28b82; }
 }
 .modal-output pre.stderr { color: #f28b82; }
 
-.editor-pane { flex: 2; min-width: 0; }
+.editor-pane { flex: 2; min-width: 0; display: flex; flex-direction: column; }
+.editor-pane-editor { flex: 1; min-height: 0; }
 .io-pane { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #33334a; min-width: 320px; }
+
+.task-panel { border-bottom: 1px solid #33334a; background: #20202f; flex: 0 0 auto; }
+.task-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.task-panel-body { padding: 0 14px 14px; max-height: 30vh; overflow-y: auto; }
+.task-description { white-space: pre-wrap; word-break: break-word; }
+.task-example { margin-bottom: 10px; padding: 8px 10px; background: #1a1a28; border-radius: 6px; }
+
+.test-case-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.test-case { padding: 8px 10px; border-radius: 6px; background: #1a1a28; border-left: 3px solid #5865f2; }
+.test-case.passed { border-left-color: #6fcf97; }
+.test-case.failed { border-left-color: #f28b82; }
+.test-case-title { font-weight: 600; }
+.test-case-error { color: #f28b82; white-space: pre-wrap; word-break: break-word; }
 .io-block { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .io-block label { font-size: 12px; color: #8a8aa3; text-transform: uppercase; }
 .io-block textarea { resize: vertical; }

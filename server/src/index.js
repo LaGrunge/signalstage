@@ -5,6 +5,7 @@ import { runMigrations } from "./db.js";
 import { router as authRouter } from "./auth.js";
 import { router as roomsRouter } from "./rooms.js";
 import { router as templatesRouter } from "./templates.js";
+import { router as problemsRouter } from "./problems.js";
 import { router as judge0Router } from "./judge0.js";
 import { startCollabServer } from "./collabServer.js";
 
@@ -23,6 +24,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/auth", authRouter);
 app.use("/rooms", roomsRouter);
 app.use("/templates", templatesRouter);
+app.use("/problems", problemsRouter);
 app.use("/", judge0Router);
 
 const port = Number(process.env.PORT || 4000);

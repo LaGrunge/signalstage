@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import Problems from "./pages/Problems.jsx";
 import Room from "./pages/Room.jsx";
 
 function RequireAuth({ children }) {
@@ -19,6 +20,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Dashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/problems"
+        element={
+          <RequireAuth>
+            <Problems />
           </RequireAuth>
         }
       />
