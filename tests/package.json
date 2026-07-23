@@ -1,0 +1,12 @@
+{
+  "name": "signalstage-system-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node system-check.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -15,14 +15,22 @@ export const LANGUAGES = [
   // mariadb-install-db + mariadbd startup inside the sandbox needs several
   // seconds on top of actual query time - give it more wall-clock room than
   // the other languages (default 10s, judge0.conf's MAX_WALL_TIME_LIMIT=30).
-  { key: "mariadb", label: "MariaDB (11.8)", judge0Id: 90, wallTimeLimit: 25 },
+  // maxFileSize: InnoDB's initial datadir (ibdata1 + redo logs) lands around
+  // 140MB even for a fresh, empty instance - the default 20MB quota (sized
+  // for the other languages' build artifacts) makes mariadb-install-db die
+  // with "File size limit exceeded" before it ever gets to run a query.
+  { key: "mariadb", label: "MariaDB (11.8)", judge0Id: 90, wallTimeLimit: 25, maxFileSize: 256000 },
 ];
 
 const LANGUAGE_BY_KEY = Object.fromEntries(LANGUAGES.map((l) => [l.key, l]));
 
+// Must exceed the longest wallTimeLimit above (MariaDB's 25s) with real
+// headroom - Judge0 itself waits up to that long server-side under
+// wait=true, and an axios timeout shorter than that aborts genuinely slow
+// (but successful) runs before Judge0 ever gets to respond.
 const judge0 = axios.create({
   baseURL: process.env.JUDGE0_URL || "http://judge0-server:2358",
-  timeout: 20_000,
+  timeout: 35_000,
   headers: process.env.JUDGE0_AUTH_TOKEN
     ? { [process.env.JUDGE0_AUTH_HEADER || "X-Judge0-Token"]: process.env.JUDGE0_AUTH_TOKEN }
     : {},
@@ -57,6 +65,7 @@ router.post("/execute", async (req, res) => {
       language_id: lang.judge0Id,
       stdin: b64(stdin || ""),
       ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
+      ...(lang.maxFileSize ? { max_file_size: lang.maxFileSize } : {}),
     }, { params: { base64_encoded: "true", wait: "true" } });
 
     const result = {

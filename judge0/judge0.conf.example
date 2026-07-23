@@ -279,18 +279,26 @@ MAX_WALL_TIME_LIMIT=
 
 # Limit address space of the program in kilobytes.
 # Default: 128000
-# Modest bump for interview-submission headroom (arrays/loops that legitimately
-# use a bit more than 128MB) - not a workaround for anything. isolate 2.6 (see
-# judge0/Dockerfile - this image is rebuilt on Ubuntu 26.04 specifically so we
-# can run a cgroup-v2-native isolate) enforces this via real cgroup memory
-# accounting again, and modern JVMs/Go runtimes size their own ergonomics off
-# the cgroup limit rather than blowing past it, so this no longer needs to be
-# anywhere near as large as it did under the old rlimit-only workaround.
-MEMORY_LIMIT=262144
+# isolate 2.6 (see judge0/Dockerfile - rebuilt on Ubuntu 26.04 specifically
+# for a cgroup-v2-capable isolate) CAN drive real cgroup v2 accounting, but
+# Judge0 v1.13.1's own isolate_job.rb (written for isolate 1.x) unconditionally
+# passes --cg-timing/--no-cg-timing whenever --cg mode is active, and isolate
+# 2.x removed both flags outright - the whole invocation gets rejected
+# ("isolate: unrecognized option '--cg-timing'") regardless of which way
+# these ENABLE_PER_PROCESS_AND_THREAD_* flags point, UNLESS both are true
+# (that specific combination is the only one where cgroups are never engaged
+# and neither removed flag is ever emitted). So this deployment stays on the
+# rlimit-only path on purpose, not because isolate can't do better - patching
+# judge0's own Ruby source to drop those two flags would be the "real" fix,
+# but wasn't judged worth the risk here. Under rlimit mode this is a
+# per-process RLIMIT_AS (virtual address space), not RSS, and JVM/Go reserve
+# hundreds of MB of virtual memory for their own runtime before touching any
+# real user data - bumped well above upstream's default accordingly.
+MEMORY_LIMIT=1572864
 
 # Maximum custom MEMORY_LIMIT.
 # Default: 512000
-MAX_MEMORY_LIMIT=1048576
+MAX_MEMORY_LIMIT=4194304
 
 # Limit process stack in kilobytes.
 # Default: 64000
@@ -302,22 +310,22 @@ MAX_STACK_LIMIT=
 
 # Maximum number of processes and/or threads program can create.
 # Default: 60
-MAX_PROCESSES_AND_OR_THREADS=
+# Bumped: under the rlimit-only path (see ENABLE_PER_PROCESS_AND_THREAD_*
+# below), this becomes a real per-process thread cap - JVM's GC/JIT thread
+# pools and Go's GOMAXPROCS-sized worker pool both need more than the
+# default 60 before user code even runs.
+MAX_PROCESSES_AND_OR_THREADS=200
 
 # Maximum custom MAX_PROCESSES_AND_OR_THREADS.
 # Default: 120
-MAX_MAX_PROCESSES_AND_OR_THREADS=
+MAX_MAX_PROCESSES_AND_OR_THREADS=500
 
 # If true then CPU_TIME_LIMIT will be used as per process and thread.
 # Default: false, i.e. CPU_TIME_LIMIT is set as a total limit for all processes and threads.
-# Left at default (false): isolate 2.6's --cg mode requires and properly uses
-# cgroup v2 (see judge0/Dockerfile), so submissions are limited by real cgroup
-# accounting across their whole process tree again, same as upstream Judge0
-# intends. The previous rlimit-only workaround this deployment carried (see
-# README's now-historical "cgroup v2 хосты" section) was needed only because
-# isolate 1.8.1 (bundled in the old judge0/judge0:latest image) could not
-# drive cgroup v2 at all.
-ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=
+# Must be true (see MEMORY_LIMIT comment above): this is what keeps
+# isolate_job.rb from ever emitting the --cg-timing/--no-cg-timing flags
+# isolate 2.x no longer understands.
+ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=true
 
 # If false, user won't be able to set ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT.
 # Default: true
@@ -325,7 +333,9 @@ ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=
 
 # If true then MEMORY_LIMIT will be used as per process and thread.
 # Default: false, i.e. MEMORY_LIMIT is set as a total limit for all processes and threads.
-ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=
+# Must be true together with ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT above -
+# see that comment.
+ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=true
 
 # If false, user won't be able to set ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT.
 # Default: true
@@ -333,11 +343,18 @@ ALLOW_ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=
 
 # Limit size of files created (or modified) by the program in kilobytes.
 # Default: 1024
-MAX_FILE_SIZE=
+# Bumped from the 1024 default for Go's build cache artifacts (a few MB even
+# for a trivial program). MariaDB needs much more still (its InnoDB datadir
+# alone is ~140MB) - see server/src/judge0.js's per-language maxFileSize
+# override, which asks for more than this default just for that language
+# rather than raising the shared default this high for everyone.
+MAX_FILE_SIZE=20480
 
 # Maximum custom MAX_FILE_SIZE.
 # Default: 4096
-MAX_MAX_FILE_SIZE=
+# Ceiling for the per-submission override above - must be at least as high as
+# MariaDB's maxFileSize request (256000) or Judge0 clamps/rejects it.
+MAX_MAX_FILE_SIZE=262144
 
 # Run each program this many times and take average of time and memory.
 # Default: 1

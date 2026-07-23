@@ -27,12 +27,22 @@ RUN git clone --depth 1 --branch v2.6 https://github.com/ioi/isolate.git /tmp/is
 # "cg_root = auto:..." expects) in a single privileged container - configure
 # the same explicit first_uid/num_boxes range 1.x used, and point cg_root at
 # a real cgroup path we create ourselves instead of the systemd auto-detect.
+#
+# syscall_flags bit 4 ("i-node operations") blocks flock()/fcntl(F_SETLK...)
+# outright by default - isolate's own man page notes this exists to stop
+# sandboxes leaking data to each other via locks on an inode shared through
+# a read-only bind-mount. Go's build cache takes exactly this legitimate
+# flock() path to trim itself after a build and fails compilation entirely
+# without it ("go: failed to trim cache: ... function not implemented").
+# Disable only that bit (31 total - 4 = 27); keyrings/vsock/io_uring/legacy-
+# arch restrictions (1+2+8+16) stay on.
 RUN sed -i \
       -e 's|^subid_user = isolate|#subid_user = isolate|' \
       -e 's|^# first_uid = 60000|first_uid = 60000|' \
       -e 's|^# first_gid = 60000|first_gid = 60000|' \
       -e 's|^# num_boxes = 1000|num_boxes = 2000|' \
       -e 's|^cg_root = auto:/run/isolate/cgroup|cg_root = /sys/fs/cgroup/isolate|' \
+      -e 's|^# syscall_flags = 65535|syscall_flags = 27|' \
       /usr/local/etc/isolate
 
 # Judge0 v1.13.1's Gemfile pins Rails 5.0 / old gem versions verified against
@@ -87,6 +97,94 @@ WORKDIR /api
 # real config (empty POSTGRES_PASSWORD etc.) unless removed.
 RUN git clone --depth 1 --branch v1.13.1 https://github.com/judge0/judge0.git /api && \
     rm -f /api/judge0.conf
+
+# db/seeds.rb does `Language.unscoped.delete_all` and unconditionally
+# recreates all 89 stock languages EVERY boot (scripts/server runs
+# `rails db:seed` on every start, not just once) - a one-shot SQL fixup
+# applied by hand gets silently wiped on the next restart/redeploy. Append
+# our overrides to the same seed file instead of fighting it, so they're
+# reapplied automatically every time, in the same transaction as the stock
+# seed.
+COPY <<'SIGNALSTAGE_SEEDS' /tmp/signalstage_seeds.rb
+
+
+# --- SignalStage: this deployment's own toolchain refresh, layered on top of
+# the stock seed above (which just wiped and recreated everything) - see
+# README's "Ubuntu 26.04 vs. Debian buster" and "cgroup v2 хосты" sections. ---
+{
+  54 => { name: 'C++ (GCC 15, C++23)',
+          compile_cmd: '/usr/bin/g++-15 %s -std=c++23 -fdiagnostics-color=always main.cpp',
+          run_cmd: './a.out' },
+  71 => { name: 'Python (3.14)',
+          run_cmd: '/usr/bin/python3 script.py' },
+  60 => { name: 'Go (1.26)',
+          compile_cmd: 'GOCACHE=/tmp/.cache/go-build GO111MODULE=off /usr/bin/go build %s main.go',
+          run_cmd: './main' },
+  62 => { name: 'Java (OpenJDK 25)',
+          # /usr/bin/javac|java are symlinks through /etc/alternatives to
+          # /usr/lib/jvm/java-25-openjdk-amd64/bin/{javac,java} - isolate's
+          # default directory rules don't resolve that symlink chain from
+          # inside the sandbox ("execve: No such file or directory" even
+          # though the same binary runs fine outside isolate), so point
+          # directly at the real path instead of chasing /etc/alternatives.
+          compile_cmd: '/usr/lib/jvm/java-25-openjdk-amd64/bin/javac ' \
+                       '-J-Xmx512m -J-XX:MaxMetaspaceSize=128m -J-XX:CompressedClassSpaceSize=64m ' \
+                       '%s Main.java',
+          # Same run_cmd flags proven necessary under the rlimit-only
+          # workaround documented in README's "cgroup v2 хосты": under
+          # ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=true, MEMORY_LIMIT is
+          # a per-process RLIMIT_AS (virtual address space), and the JVM
+          # reserves around 1GB of metaspace/compressed-class-space up front
+          # regardless of what it will actually touch - cap it explicitly.
+          # javac needs the identical caps for the same reason (it's a Java
+          # program itself and hits the same ergonomics-driven reservation
+          # during compilation, not just at runtime).
+          run_cmd: '/usr/lib/jvm/java-25-openjdk-amd64/bin/java -XX:+UseSerialGC -XX:TieredStopAtLevel=1 ' \
+                   '-XX:-UsePerfData -Xshare:off -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m ' \
+                   '-XX:CompressedClassSpaceSize=64m Main' },
+  46 => { name: 'Bash (5.3)',
+          run_cmd: '/usr/bin/bash script.sh' },
+}.each do |id, attrs|
+  Language.find(id).update!(attrs)
+end
+
+# MariaDB: no existing Judge0 language for it (SQL id 82 is SQLite, a
+# single-file embedded db - MariaDB needs an actual running server). Spin up
+# a private, disposable mariadbd per submission inside the sandbox's own box
+# directory: install a fresh datadir, start it on a local Unix socket only
+# (--skip-networking - no reason to expose a TCP port from inside a
+# submission sandbox), poll until it accepts connections, run the submitted
+# script, and let isolate tear the whole box down afterwards.
+#
+# Two non-obvious fixes baked in here, both found the hard way:
+# - The socket file lives under /dev/shm (tmpfs), not the box's own working
+#   directory. The worker container's root (and therefore the isolate box
+#   directory) is overlayfs, and mariadbd's bind() for the AF_UNIX socket
+#   silently "succeeds" on overlayfs without ever creating the socket file -
+#   mariadbd logs "ready for connections" and the client then fails to
+#   connect to a socket path that was never actually created. tmpfs doesn't
+#   have this problem. /dev/shm is shared across all boxes on this host (not
+#   per-box like the box directory is), hence the random suffix plus the
+#   explicit `rm -f` at the end so concurrent submissions can't collide and
+#   old sockets don't accumulate.
+# - max_file_size is set much higher for this language only (see
+#   server/src/judge0.js's maxFileSize override) - InnoDB's initial datadir
+#   (ibdata1 + redo logs) lands around 140MB even for a fresh, empty
+#   instance, and mariadb-install-db simply dies ("File size limit
+#   exceeded") under the ~20MB quota sized for the other languages' build
+#   artifacts.
+Language.create!(
+  id: 90,
+  name: 'MariaDB (11.8)',
+  source_file: 'script.sql',
+  run_cmd: 'mariadb-install-db --auth-root-authentication-method=normal --force --datadir=./db >/dev/null 2>&1 && ' \
+           'SOCK=$(mktemp -u /dev/shm/mariadb-XXXXXX.sock) && ' \
+           '(mariadbd --datadir=./db --socket=$SOCK --skip-networking --pid-file=./mariadb.pid >/dev/null 2>&1 &) && ' \
+           'for i in $(seq 1 30); do mariadb --socket=$SOCK -e "SELECT 1" >/dev/null 2>&1 && break; sleep 0.2; done && ' \
+           'mariadb --socket=$SOCK < script.sql; RC=$?; rm -f "$SOCK"; exit $RC'
+)
+SIGNALSTAGE_SEEDS
+RUN cat /tmp/signalstage_seeds.rb >> /api/db/seeds.rb && rm /tmp/signalstage_seeds.rb
 
 RUN RAILS_ENV=production bundle _2.1.4_
 

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 judge0/judge0.conf
+.claude/
 
 npm-debug.log*
 .DS_Store

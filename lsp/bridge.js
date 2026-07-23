@@ -56,6 +56,21 @@ const LANGUAGES = {
       );
     },
   },
+  bash: {
+    filename: "script.sh",
+    // Optional but picked up automatically off PATH if present (see
+    // Dockerfile) - real shellcheck-backed diagnostics instead of just
+    // completion/hover.
+    spawn: (dir) => spawn("bash-language-server", ["start"], { cwd: dir }),
+  },
+  // No mariadb entry: sql-language-server (the only maintained generic-SQL
+  // LSP on npm) crashes on startup on any currently-installable version -
+  // `ERR_PACKAGE_PATH_NOT_EXPORTED` for vscode-languageserver-protocol's
+  // ./lib/common/protocol subpath, a real dependency incompatibility in the
+  // package itself, not an environment/config issue here. Monaco still gets
+  // built-in SQL syntax highlighting (see CollabEditor.jsx's MONACO_LANGUAGE
+  // map) - just no diagnostics/completion/hover for this language. Revisit
+  // if the package ever fixes this, or swap to a different SQL LSP.
 };
 
 class MessageFramer {
@@ -186,8 +201,10 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
+const LANGUAGE_PATH_RE = new RegExp(`^/lsp/(${Object.keys(LANGUAGES).join("|")})$`);
+
 server.on("upgrade", (req, socket, head) => {
-  const match = /^\/lsp\/(cpp|python|go|java)$/.exec(req.url);
+  const match = LANGUAGE_PATH_RE.exec(req.url);
   if (!match) {
     socket.destroy();
     return;

@@ -1,22 +1,28 @@
 FROM node:20-bookworm
 
-# clangd (C++), python3/pip (pylsp) - Go and Java toolchains are fetched
-# directly below since Debian bookworm's apt versions are too old (golang-go's
-# go.mod parser can't even read gopls's own go.mod, and there's no
-# openjdk-21 package in bookworm main, which jdtls needs). One image for all
-# four language servers, path-routed by the bridge - simpler to build and
-# deploy than four separate services for a box this size; revisit only if
-# image size becomes a problem.
+# clangd (C++), python3/pip (pylsp), shellcheck (bash diagnostics) - Go and
+# Java toolchains are fetched directly below since Debian bookworm's apt
+# versions are too old (golang-go's go.mod parser can't even read gopls's own
+# go.mod, and there's no openjdk-21 package in bookworm main, which jdtls
+# needs). One image for all six language servers, path-routed by the bridge -
+# simpler to build and deploy than six separate services for a box this
+# size; revisit only if image size becomes a problem.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       clangd \
       python3 \
       python3-pip \
+      shellcheck \
       curl \
       unzip \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --break-system-packages --no-cache-dir 'python-lsp-server[all]'
+
+# Picks up shellcheck off PATH automatically for real diagnostics, not just
+# completion/hover. (No sql-language-server here - see bridge.js's comment on
+# LANGUAGES for why MariaDB has no LSP entry.)
+RUN npm install -g bash-language-server
 
 # Debian bookworm only ships OpenJDK 17, but current jdtls snapshots require a
 # 21+ runtime to launch - install Temurin 21 directly rather than pulling in a
