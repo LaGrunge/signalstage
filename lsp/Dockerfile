@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       wget \
       gnupg \
       lsb-release \
+      software-properties-common \
       unzip \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
