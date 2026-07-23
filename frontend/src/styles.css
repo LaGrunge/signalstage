@@ -189,6 +189,9 @@ button.link.danger { color: #f28b82; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
 .status.online { background: #1e3a2a; color: #6fcf97; }
 .status.offline { background: #3a2a1e; color: #f2c94c; }
+.you-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.you-badge.interviewer { background: #2a2a4a; color: #9aa0f5; }
+.you-badge.candidate { background: #33334a; color: #b8b8cc; }
 .room-header select:first-of-type { margin-left: auto; }
 .participants { display: flex; }
 .participant-badge {

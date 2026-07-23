@@ -213,6 +213,9 @@ export default function Room() {
             {connected ? "connected" : "connecting…"}
           </span>
         </div>
+        <span className={`you-badge ${isInterviewer ? "interviewer" : "candidate"}`}>
+          {userName} · {isInterviewer ? "Interviewer" : "Candidate"}
+        </span>
         <div className="participants" title={participants.map((p) => p.name).join(", ")}>
           {participants.map((p) => (
             <span
