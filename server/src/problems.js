@@ -31,11 +31,20 @@ router.post("/folders", async (req, res) => {
 });
 
 router.delete("/folders/:id", async (req, res) => {
+  const owns = await pool.query("SELECT 1 FROM problem_folders WHERE id = $1 AND created_by = $2", [
+    req.params.id,
+    req.user.sub,
+  ]);
+  if (!owns.rows[0]) return res.status(404).json({ error: "folder not found" });
+
   const { rows } = await pool.query("SELECT count(*)::int AS n FROM problems WHERE folder_id = $1", [req.params.id]);
   if (rows[0].n > 0) {
     return res.status(409).json({ error: "folder is not empty" });
   }
-  const { rowCount } = await pool.query("DELETE FROM problem_folders WHERE id = $1", [req.params.id]);
+  const { rowCount } = await pool.query("DELETE FROM problem_folders WHERE id = $1 AND created_by = $2", [
+    req.params.id,
+    req.user.sub,
+  ]);
   if (!rowCount) return res.status(404).json({ error: "folder not found" });
   res.status(204).end();
 });
