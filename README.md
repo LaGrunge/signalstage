@@ -49,6 +49,10 @@ frontend (nginx, static React build)
 - An interviewer can disable/re-enable the Run button for candidates
   mid-session, and sees a live "candidate is running code" indicator driven
   by Yjs awareness — both synced instantly to every participant, no polling.
+- Every participant sees everyone else's cursor (colored, labeled caret) and
+  text selection (colored highlight) live, via `y-monaco`'s awareness
+  decorations — `CollabEditor.jsx` generates the actual colors/labels/CSS
+  itself, since `y-monaco` only assigns bare classNames and renders nothing.
 
 ## Quick start
 

@@ -95,6 +95,29 @@ A websocket upgrading successfully proves nothing about whether the language
 server behind it actually started (also learned the hard way — see the LSP
 section of README).
 
+## Remote cursor/selection rendering (`CollabEditor.jsx`)
+
+`y-monaco` only assigns bare decoration classNames
+(`yRemoteSelection-<clientId>`, `yRemoteSelectionHead-<clientId>`) — it
+renders no color, label, or highlight itself. All of that (colored caret,
+name label, colored selection background) is generated client-side into a
+`<style>` tag, rebuilt from Yjs awareness state on every change. Two things
+already bit us here:
+
+- Awareness `user.color`/`user.name` are attacker-controlled (any peer can
+  set arbitrary JSON via devtools) and land directly in a CSS rule — colors
+  are validated against `isSafeCssColor` (hex/rgb/hsl only) and names are
+  escaped before use.
+- The selection background used to add alpha by string-concatenating a hex
+  suffix (`` `${color}55` ``), which only produces valid CSS when `color` is
+  hex. Since our own client always sends `hsl(...)`, that concatenation
+  produced an invalid color value, so the whole `background-color`
+  declaration was silently dropped — cursors/labels rendered fine (a plain,
+  valid color), but the selection highlight was invisible. Fixed by using
+  `color-mix(in srgb, ${color} 33%, transparent)`, which is valid for any of
+  the color formats `isSafeCssColor` allows. If you touch this again, don't
+  reintroduce string-suffix alpha tricks on a color of unknown format.
+
 ## Known gaps / not done
 
 - **No LSP for MariaDB.** `sql-language-server` (the only maintained generic
