@@ -19,7 +19,7 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT id, title, language, active, created_at FROM rooms WHERE created_by = $1 ORDER BY created_at DESC",
+    "SELECT id, title, language, active, created_at FROM rooms WHERE created_by = $1 AND active = true ORDER BY created_at DESC",
     [req.user.sub]
   );
   res.json(rows);

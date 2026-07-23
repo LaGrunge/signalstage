@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, clearSession, getUser } from "../lib/api.js";
+import { api, clearSession, copyToClipboard, getUser } from "../lib/api.js";
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [language, setLanguage] = useState("python");
   const [languages, setLanguages] = useState([]);
   const [error, setError] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
   const navigate = useNavigate();
   const user = getUser();
 
@@ -34,8 +35,22 @@ export default function Dashboard() {
   }
 
   async function deleteRoom(id) {
-    await api.delete(`/rooms/${id}`);
-    await loadRooms();
+    try {
+      await api.delete(`/rooms/${id}`);
+      await loadRooms();
+    } catch {
+      setError("Failed to delete session");
+    }
+  }
+
+  async function copyLink(id) {
+    try {
+      await copyToClipboard(`${window.location.origin}/room/${id}`);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 2000);
+    } catch {
+      setError("Failed to copy link");
+    }
   }
 
   function logout() {
@@ -81,13 +96,8 @@ export default function Dashboard() {
             </div>
             <div className="room-actions">
               <Link to={`/room/${r.id}`}>Open</Link>
-              <button
-                className="link"
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/room/${r.id}`);
-                }}
-              >
-                Copy link
+              <button className="link" onClick={() => copyLink(r.id)}>
+                {copiedId === r.id ? "Copied!" : "Copy link"}
               </button>
               <button className="link danger" onClick={() => deleteRoom(r.id)}>
                 Delete

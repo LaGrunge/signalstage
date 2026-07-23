@@ -50,13 +50,13 @@ button.link.danger { color: #f28b82; }
   flex-direction: column;
   gap: 12px;
 }
-.auth-card .logo { width: 96px; height: 96px; object-fit: contain; border-radius: 12px; align-self: center; }
+.auth-card .logo { width: 100%; height: auto; object-fit: contain; border-radius: 12px; align-self: center; }
 .subtitle { margin: 0 0 8px; color: #8a8aa3; text-align: center; }
 .hint { text-align: center; font-size: 13px; }
 
 .dashboard { max-width: 800px; margin: 0 auto; padding: 32px 16px; }
 .dashboard header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.dashboard header .logo { height: 48px; width: 48px; object-fit: contain; border-radius: 10px; }
+.dashboard header .logo { height: 140px; width: 140px; object-fit: contain; border-radius: 14px; }
 .dashboard header > div { display: flex; align-items: center; gap: 12px; }
 .new-room { display: flex; gap: 8px; margin-bottom: 24px; }
 .new-room input { flex: 1; }
