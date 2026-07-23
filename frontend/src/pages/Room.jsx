@@ -17,6 +17,7 @@ export default function Room() {
   const [output, setOutput] = useState(null);
   const [running, setRunning] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [participants, setParticipants] = useState([]);
 
   useEffect(() => {
     api
@@ -58,6 +59,22 @@ export default function Room() {
     onUpdate();
     return () => config.unobserve(onUpdate);
   }, [provider, ydoc]);
+
+  useEffect(() => {
+    if (!provider) return;
+    const { awareness } = provider;
+    const updateParticipants = () => {
+      const entries = Array.from(awareness.getStates().entries());
+      setParticipants(
+        entries
+          .filter(([, state]) => state.user)
+          .map(([clientId, state]) => ({ clientId, ...state.user }))
+      );
+    };
+    awareness.on("change", updateParticipants);
+    updateParticipants();
+    return () => awareness.off("change", updateParticipants);
+  }, [provider]);
 
   useEffect(() => () => provider?.destroy(), [provider]);
 
@@ -112,6 +129,13 @@ export default function Room() {
             {connected ? "connected" : "connecting…"}
           </span>
         </div>
+        <div className="participants" title={participants.map((p) => p.name).join(", ")}>
+          {participants.map((p) => (
+            <span key={p.clientId} className="participant-badge" style={{ backgroundColor: p.color }}>
+              {initials(p.name)}
+            </span>
+          ))}
+        </div>
         <select value={language} onChange={(e) => changeLanguage(e.target.value)}>
           {languages.map((l) => (
             <option key={l.key} value={l.key}>
@@ -152,4 +176,9 @@ export default function Room() {
       </div>
     </div>
   );
+}
+
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
