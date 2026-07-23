@@ -4,7 +4,7 @@ import { requireAuth, optionalAuth } from "./auth.js";
 import { LANGUAGES } from "./judge0.js";
 import { getLiveDocument, getRoomParticipantCount } from "./collabServer.js";
 import { getRoomAccess } from "./roomAccess.js";
-import { runTests } from "./testRunner.js";
+import { runProblemTests } from "./testRunner.js";
 
 export const router = Router();
 
@@ -172,24 +172,25 @@ router.get("/:id/problem", async (req, res) => {
   if (!room.problemId) return res.json(null);
 
   const { rows: problemRows } = await pool.query(
-    `SELECT id, title, description, function_name AS "functionName", params, return_type AS "returnType"
-     FROM problems WHERE id = $1`,
+    `SELECT id, title, description, signature_hint AS "signatureHint" FROM problems WHERE id = $1`,
     [room.problemId]
   );
   const problem = problemRows[0];
   if (!problem) return res.json(null);
 
-  const { rows: publicTests } = await pool.query(
-    `SELECT id, name, args, expected FROM problem_tests
-     WHERE problem_id = $1 AND is_hidden = false ORDER BY position ASC`,
+  // Only public test code, per language - hidden_code is never selected
+  // here at all, not just filtered out client-side, so there's nothing to
+  // accidentally leak in this response.
+  const { rows: testCode } = await pool.query(
+    `SELECT language, public_code AS "publicCode" FROM problem_test_code WHERE problem_id = $1`,
     [room.problemId]
   );
-  res.json({ ...problem, publicTests });
+  res.json({ ...problem, testCode });
 });
 
-// mode: "run" (visible test cases only, fast feedback, not persisted) vs
-// "submit" (every test case including hidden ones, persisted to
-// test_runs). Mirrors the run_enabled gate exactly, but on tests_enabled.
+// mode: "run" (public test code only, fast feedback, not persisted) vs
+// "submit" (public AND hidden test code, persisted to test_runs). Mirrors
+// the run_enabled gate exactly, but on tests_enabled.
 router.post("/:id/tests", optionalAuth, async (req, res) => {
   const { code, mode, submittedBy } = req.body || {};
   if (mode !== "run" && mode !== "submit") {
@@ -208,31 +209,23 @@ router.post("/:id/tests", optionalAuth, async (req, res) => {
     return res.status(400).json({ error: "room has no problem attached" });
   }
 
-  const { rows: problemRows } = await pool.query(
-    `SELECT function_name AS "functionName", params, return_type AS "returnType" FROM problems WHERE id = $1`,
-    [access.room.problemId]
+  const { rows: testCodeRows } = await pool.query(
+    `SELECT public_code AS "publicCode", hidden_code AS "hiddenCode"
+     FROM problem_test_code WHERE problem_id = $1 AND language = $2`,
+    [access.room.problemId, access.room.language]
   );
-  const problem = problemRows[0];
-  if (!problem) return res.status(404).json({ error: "problem not found" });
-
-  const hiddenFilter = mode === "run" ? "AND is_hidden = false" : "";
-  const { rows: testCases } = await pool.query(
-    `SELECT id, name, args, expected, is_hidden AS "isHidden" FROM problem_tests
-     WHERE problem_id = $1 ${hiddenFilter} ORDER BY position ASC`,
-    [access.room.problemId]
-  );
-  if (testCases.length === 0) {
-    return res.status(400).json({ error: "no test cases available" });
+  const tc = testCodeRows[0];
+  if (!tc || (!tc.publicCode?.trim() && !tc.hiddenCode?.trim())) {
+    return res.status(400).json({ error: "no test code available for this language" });
   }
 
   try {
-    const { results, compileOutput, stderr, status } = await runTests({
+    const { results, compileOutput, stderr, status } = await runProblemTests({
       language: access.room.language,
       candidateCode: code,
-      functionName: problem.functionName,
-      returnType: problem.returnType,
-      params: problem.params,
-      testCases,
+      publicTestCode: tc.publicCode,
+      hiddenTestCode: tc.hiddenCode,
+      mode,
     });
     const passedCount = results.filter((r) => r.passed).length;
 
@@ -245,7 +238,7 @@ router.post("/:id/tests", optionalAuth, async (req, res) => {
     }
 
     // Redact hidden-case detail for non-owners - only name + pass/fail
-    // survive; args/expected/actual/error could leak the intended answer.
+    // survive; the failure message could leak the intended answer.
     const visibleResults = access.isOwner
       ? results
       : results.map((r) => (r.isHidden ? { name: r.name, isHidden: true, passed: r.passed } : r));

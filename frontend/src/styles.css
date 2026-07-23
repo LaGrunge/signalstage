@@ -59,21 +59,51 @@ button.link.danger { color: #f28b82; }
 .dashboard header .logo { height: 140px; width: 140px; object-fit: contain; border-radius: 14px; }
 .dashboard header > div { display: flex; align-items: center; gap: 12px; }
 .dashboard h2 { font-size: 16px; margin: 32px 0 12px; }
+.dashboard-tabs { display: flex; gap: 4px; border-bottom: 1px solid #33334a; margin-bottom: 20px; }
+.dashboard-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 4px;
+  margin-right: 20px;
+  color: #8a8aa3;
+  font-size: 14px;
+}
+.dashboard-tabs button:hover { color: #e8e8f0; }
+.dashboard-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
 .new-room { display: flex; gap: 8px; margin-bottom: 24px; }
 .new-room input { flex: 1; }
 
-.problem-editor { display: flex; flex-direction: column; gap: 8px; max-width: 700px; }
+.problem-editor { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
 .problem-editor label { font-size: 12px; color: #8a8aa3; text-transform: uppercase; margin-top: 12px; }
 .problem-editor-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.problem-signature-row, .problem-param-row, .problem-solution-row, .problem-test-row {
-  display: flex; gap: 8px; align-items: center; margin-bottom: 4px;
+.problem-solution-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.problem-solution-block { border: 1px solid #33334a; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.problem-meta-row { display: flex; gap: 24px; align-items: flex-end; margin: 12px 0; }
+.problem-meta-row select { display: block; margin-top: 4px; }
+
+.star-picker { display: flex; gap: 2px; }
+.star-btn { background: none; border: none; font-size: 20px; padding: 2px; color: #8a8aa3; }
+.star-btn.filled { color: #f2c94c; }
+
+.lang-tabs { display: flex; gap: 4px; border-bottom: 1px solid #33334a; margin: 16px 0 8px; }
+.lang-tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 8px 4px; margin-right: 16px; color: #8a8aa3; text-transform: capitalize;
 }
-.problem-test-args { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.problem-test-args input { flex: 1; min-width: 120px; }
-.problem-starter-block, .problem-solution-block, .problem-test-block {
-  border: 1px solid #33334a; border-radius: 8px; padding: 10px; margin-bottom: 8px;
-}
-.problem-solution-block textarea, .problem-starter-block textarea { font-family: monospace; }
+.lang-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
+
+.problems-layout { display: flex; gap: 24px; align-items: flex-start; }
+.folder-sidebar { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; }
+.folder-sidebar > button { text-align: left; padding: 6px 8px; border-radius: 6px; }
+.folder-sidebar > button.active { background: #2a2a3d; color: #e8e8f0; }
+.folder-row { display: flex; align-items: center; gap: 4px; }
+.folder-row > button:first-child { flex: 1; text-align: left; padding: 6px 8px; border-radius: 6px; }
+.folder-row > button:first-child.active { background: #2a2a3d; color: #e8e8f0; }
+.new-folder-form { display: flex; gap: 4px; margin-top: 8px; }
+.new-folder-form input { flex: 1; min-width: 0; }
+.problems-main { flex: 1; min-width: 0; }
 
 .card-grid {
   display: grid;

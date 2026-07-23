@@ -1,61 +1,52 @@
-import { isArrayType, elementType } from "./types.js";
-import { TESTS_BEGIN, TESTS_END } from "./markers.js";
-
-// JSON.stringify's escaping is a subset of what Python double-quoted string
-// literals accept (\n, \t, \", \\, \uXXXX, ...) - safe to use directly as a
-// Python source string literal for any value known at codegen time (test
-// names, static JSON fragments), without writing a separate escaper.
-function srcStrLit(value) {
-  return JSON.stringify(String(value));
-}
-
-function literal(type, value) {
-  if (isArrayType(type)) {
-    const el = elementType(type);
-    return "[" + (value ?? []).map((v) => literal(el, v)).join(", ") + "]";
-  }
-  switch (type) {
-    case "int":
-      return String(Math.trunc(Number(value)));
-    case "double":
-      return String(Number(value));
-    case "bool":
-      return value ? "True" : "False";
-    case "string":
-      return srcStrLit(value);
-    default:
-      throw new Error(`unsupported type: ${type}`);
-  }
-}
-
-// candidateCode is expected to define just the function itself - no
-// package/import/main boilerplate. testCases: [{name, args:[...values, one
-// per param, in order], expected}].
-export function buildSource(candidateCode, { functionName, returnType, params, testCases }) {
-  const lines = [
-    "import json",
+// Tests are real Python: the problem author writes an actual
+// unittest.TestCase subclass calling the candidate's function(s) directly.
+// candidateCode and testCode are both plain top-level module code -
+// concatenated as-is, then run through unittest's own TextTestRunner
+// forced onto stdout (its default stream is stderr).
+export function buildSource(candidateCode, testCode) {
+  return [
+    "import unittest, sys",
     "",
     candidateCode,
     "",
-    "def __sig_emit(name, passed, actual, error):",
-    '    print(json.dumps({"name": name, "passed": bool(passed), "actual": actual, "error": error}))',
+    testCode,
     "",
-    `print(${srcStrLit(TESTS_BEGIN)})`,
-  ];
+    "if __name__ == '__main__':",
+    "    __sig_loader = unittest.TestLoader()",
+    "    __sig_suite = __sig_loader.loadTestsFromModule(sys.modules['__main__'])",
+    "    unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(__sig_suite)",
+  ].join("\n");
+}
 
-  for (const tc of testCases) {
-    const argExprs = params.map((p, j) => literal(p.type, tc.args[j]));
-    const expectedExpr = literal(returnType, tc.expected);
-    const nameLit = srcStrLit(tc.name);
-    lines.push(
-      "try:",
-      `    __actual = ${functionName}(${argExprs.join(", ")})`,
-      `    __sig_emit(${nameLit}, __actual == ${expectedExpr}, repr(__actual), None)`,
-      "except Exception as __e:",
-      `    __sig_emit(${nameLit}, False, None, str(__e))`
-    );
+// verbosity=2 prints one line per test: "test_name (module.Class) ... ok",
+// "... FAIL", or "... ERROR", then (for any non-ok result) a traceback
+// block afterwards headed by "FAIL: test_name (...)" / "ERROR: test_name (...)".
+const RESULT_LINE_RE = /^(\S+) \([^)]*\)\s*\.\.\.\s*(ok|FAIL|ERROR)\s*$/gm;
+// No `|$` alternative here deliberately: with the /m flag, a bare `$` in
+// the lookahead matches at the end of every line (not just end-of-input),
+// so the lazy capture stopped after the block's very first line. Real
+// unittest output always ends with a "Ran N tests..." line, so the
+// remaining alternatives are enough to always find the true block end.
+const DETAIL_BLOCK_RE = /^(?:FAIL|ERROR): (\S+) \([^)]*\)\n-+\n([\s\S]*?)(?=\n(?:={5,}|-{5,})\n|\nRan \d)/gm;
+
+export function parseResults(stdout) {
+  const text = stdout || "";
+  const details = new Map();
+  let d;
+  while ((d = DETAIL_BLOCK_RE.exec(text))) {
+    const lines = d[2].trim().split("\n").filter(Boolean);
+    details.set(d[1], lines[lines.length - 1] || "failed");
   }
 
-  lines.push(`print(${srcStrLit(TESTS_END)})`);
-  return lines.join("\n");
+  const results = [];
+  let m;
+  while ((m = RESULT_LINE_RE.exec(text))) {
+    const [, name, status] = m;
+    if (status === "ok") {
+      results.push({ name, passed: true, message: null });
+    } else {
+      results.push({ name, passed: false, message: details.get(name) || `test ${status.toLowerCase()}` });
+    }
+  }
+  return results;
 }

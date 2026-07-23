@@ -26,6 +26,30 @@ export const LANGUAGES = [
 
 const LANGUAGE_BY_KEY = Object.fromEntries(LANGUAGES.map((l) => [l.key, l]));
 
+// Separate Judge0 language ids used only by the problem-tests pipeline
+// (server/src/testHarness/*.js, server/src/testRunner.js) - never exposed
+// via GET /languages. Compiling/running a GoogleTest or JUnit binary is a
+// fundamentally different command line than running a candidate's program
+// directly, so these are distinct ids (91/92/93) from the plain-execution
+// ones above, seeded in judge0/Dockerfile. Python (71) and Bash (46) need
+// no separate entry - see that Dockerfile's comment for why.
+export const TEST_LANGUAGES = {
+  python: { judge0Id: 71 },
+  go: {
+    judge0Id: 92,
+    // `go test` with a cold GOCACHE compiles a surprising amount of the
+    // standard library from scratch (testing/fmt's own transitive deps) -
+    // found by actually submitting through Judge0, not by reasoning about
+    // it: the default wall time limit wasn't enough even after fixing the
+    // "too many open files" issue (judge0/Dockerfile's `-p 1` comment) by
+    // serializing the build, which makes it slower still.
+    wallTimeLimit: 15,
+  },
+  cpp: { judge0Id: 91 },
+  java: { judge0Id: 93 },
+  bash: { judge0Id: 46 },
+};
+
 // Must exceed the longest wallTimeLimit above (MariaDB's 25s) with real
 // headroom - Judge0 itself waits up to that long server-side under
 // wait=true, and an axios timeout shorter than that aborts genuinely slow
@@ -44,11 +68,8 @@ const unb64 = (s) => (s ? Buffer.from(s, "base64").toString("utf8") : "");
 // Shared by plain /execute and the test-runner (server/src/testRunner.js) -
 // same Judge0 submission shape either way, the only difference is what
 // source string gets submitted (the candidate's file as-is, vs. that file
-// wrapped in a generated test-driver).
-export async function submitToJudge0(languageKey, sourceCode, stdin) {
-  const lang = LANGUAGE_BY_KEY[languageKey];
-  if (!lang) throw new Error(`unsupported language: ${languageKey}`);
-
+// wrapped in a generated test-driver) and which judge0Id/limits apply.
+export async function submitToJudge0Raw(lang, sourceCode, stdin) {
   const { data } = await judge0.post(
     "/submissions",
     {
@@ -70,6 +91,12 @@ export async function submitToJudge0(languageKey, sourceCode, stdin) {
     time: data.time,
     memory: data.memory,
   };
+}
+
+export async function submitToJudge0(languageKey, sourceCode, stdin) {
+  const lang = LANGUAGE_BY_KEY[languageKey];
+  if (!lang) throw new Error(`unsupported language: ${languageKey}`);
+  return submitToJudge0Raw(lang, sourceCode, stdin);
 }
 
 export const router = Router();

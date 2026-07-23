@@ -1,107 +1,52 @@
-import { isArrayType, elementType } from "./types.js";
-import { TESTS_BEGIN, TESTS_END } from "./markers.js";
+import { parseMarkerLines } from "./markers.js";
 
-const JAVA_SCALAR_TYPE = { int: "int", double: "double", bool: "boolean", string: "String" };
-
-function javaType(type) {
-  if (isArrayType(type)) return `${JAVA_SCALAR_TYPE[elementType(type)]}[]`;
-  return JAVA_SCALAR_TYPE[type];
-}
-
-// JSON.stringify's escaping is a subset of Java's double-quoted string
-// literal syntax - safe to use directly as a source literal for values
-// known at codegen time (test names), no separate escaper needed for those.
-function srcStrLit(value) {
-  return JSON.stringify(String(value));
-}
-
-function literal(type, value) {
-  if (isArrayType(type)) {
-    const el = elementType(type);
-    return `new ${javaType(type)}{` + (value ?? []).map((v) => literal(el, v)).join(", ") + "}";
-  }
-  switch (type) {
-    case "int":
-      return String(Math.trunc(Number(value)));
-    case "double":
-      return String(Number(value));
-    case "bool":
-      return value ? "true" : "false";
-    case "string":
-      return srcStrLit(value);
-    default:
-      throw new Error(`unsupported type: ${type}`);
-  }
-}
-
-function equalsExpr(type, actualExpr, expectedExpr) {
-  if (isArrayType(type)) return `java.util.Arrays.equals(${actualExpr}, ${expectedExpr})`;
-  if (type === "string") return `${actualExpr}.equals(${expectedExpr})`;
-  return `(${actualExpr} == ${expectedExpr})`;
-}
-
-function formatExpr(type, expr) {
-  return isArrayType(type) ? `java.util.Arrays.toString(${expr})` : `String.valueOf(${expr})`;
-}
-
-// candidateCode is expected to define the whole `class Solution { ... }`
-// wrapper itself (Judge0's Java run_cmd expects a public class named Main
-// matching the source filename - candidate's Solution class is a second,
-// non-public top-level class in the same file, which Java allows).
-export function buildSource(candidateCode, { functionName, returnType, params, testCases }) {
-  const lines = [
+// Tests are real JUnit: the problem author writes an actual `class
+// SigTests { @Test public void x() {...} }` calling the candidate's
+// `class Solution { ... }` directly. The exact class name "SigTests" is a
+// fixed convention (Judge0's source_file for this language is
+// "SigRunner.java" - see judge0/Dockerfile's id 93).
+//
+// The driver runs tests via plain reflection over @Test-annotated methods,
+// NOT via org.junit.runner.JUnitCore/BlockJUnit4ClassRunner - still real
+// JUnit annotations/Assert/AssertionError throughout, just not JUnit's own
+// runner. Found the hard way, by actually compiling generated output:
+// JUnit4's runner validation requires the test class itself to be public,
+// but javac only allows ONE public top-level class per file and it must
+// match the filename - so a public SigTests can't coexist with anything
+// else in a file that has to be named SigRunner.java. Reflection sidesteps
+// the runner's validation step entirely; SigTests stays package-private.
+export function buildSource(candidateCode, testCode) {
+  return [
+    "import org.junit.Test;",
+    "import java.lang.reflect.InvocationTargetException;",
+    "import java.lang.reflect.Method;",
+    "",
     candidateCode,
     "",
-    "public class Main {",
-    "\tstatic String __sigJsonString(String s) {",
-    "\t\tStringBuilder b = new StringBuilder();",
-    '\t\tb.append(\'"\');',
-    "\t\tfor (int i = 0; i < s.length(); i++) {",
-    "\t\t\tchar c = s.charAt(i);",
-    "\t\t\tswitch (c) {",
-    '\t\t\t\tcase \'"\': b.append("\\\\\\""); break;',
-    "\t\t\t\tcase '\\\\': b.append(\"\\\\\\\\\"); break;",
-    '\t\t\t\tcase \'\\n\': b.append("\\\\n"); break;',
-    '\t\t\t\tcase \'\\t\': b.append("\\\\t"); break;',
-    '\t\t\t\tcase \'\\r\': b.append("\\\\r"); break;',
-    "\t\t\t\tdefault:",
-    "\t\t\t\t\tif (c < 0x20) b.append(String.format(\"\\\\u%04x\", (int) c));",
-    "\t\t\t\t\telse b.append(c);",
-    "\t\t\t}",
-    "\t\t}",
-    '\t\tb.append(\'"\');',
-    "\t\treturn b.toString();",
-    "\t}",
+    testCode,
     "",
-    "\tstatic void __sigEmit(String name, boolean passed, String actual, String err) {",
-    "\t\tSystem.out.println(\"{\\\"name\\\":\" + __sigJsonString(name)",
-    "\t\t\t+ \",\\\"passed\\\":\" + passed",
-    "\t\t\t+ \",\\\"actual\\\":\" + (actual != null ? __sigJsonString(actual) : \"null\")",
-    "\t\t\t+ \",\\\"error\\\":\" + (err != null ? __sigJsonString(err) : \"null\") + \"}\");",
-    "\t}",
-    "",
-    "\tpublic static void main(String[] args) {",
-    `\t\tSystem.out.println(${srcStrLit(TESTS_BEGIN)});`,
-  ];
+    "class SigRunner {",
+    "    public static void main(String[] args) throws Exception {",
+    '        Class<?> testClass = Class.forName("SigTests");',
+    "        Object instance = testClass.getDeclaredConstructor().newInstance();",
+    "        for (Method m : testClass.getMethods()) {",
+    "            if (!m.isAnnotationPresent(Test.class)) continue;",
+    "            m.setAccessible(true);",
+    "            try {",
+    "                m.invoke(instance);",
+    '                System.out.println("##SIG_TEST_OK## " + m.getName());',
+    "            } catch (InvocationTargetException e) {",
+    "                Throwable cause = e.getCause();",
+    "                String msg = cause.getMessage() != null ? cause.getMessage() : String.valueOf(cause);",
+    '                msg = msg.replace("\\n", " ");',
+    '                System.out.println("##SIG_TEST_FAIL## " + m.getName() + " :: " + msg);',
+    "            }",
+    "        }",
+    "    }",
+    "}",
+  ].join("\n");
+}
 
-  for (const tc of testCases) {
-    const argExprs = params.map((p, j) => literal(p.type, tc.args[j]));
-    const expectedExpr = literal(returnType, tc.expected);
-    const nameLit = srcStrLit(tc.name);
-    lines.push(
-      "\t\ttry {",
-      `\t\t\t${javaType(returnType)} __actual = Solution.${functionName}(${argExprs.join(", ")});`,
-      `\t\t\t${javaType(returnType)} __expected = ${expectedExpr};`,
-      `\t\t\tboolean __passed = ${equalsExpr(returnType, "__actual", "__expected")};`,
-      `\t\t\tString __actualStr = ${formatExpr(returnType, "__actual")};`,
-      `\t\t\t__sigEmit(${nameLit}, __passed, __actualStr, null);`,
-      "\t\t} catch (Throwable __t) {",
-      "\t\t\tString __err = __t.getMessage() != null ? __t.getMessage() : __t.toString();",
-      `\t\t\t__sigEmit(${nameLit}, false, null, __err);`,
-      "\t\t}"
-    );
-  }
-
-  lines.push(`\t\tSystem.out.println(${srcStrLit(TESTS_END)});`, "\t}", "}");
-  return lines.join("\n");
+export function parseResults(stdout) {
+  return parseMarkerLines(stdout);
 }

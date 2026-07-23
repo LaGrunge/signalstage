@@ -14,7 +14,57 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openjdk-25-jdk-headless \
       bash \
       mariadb-client mariadb-server \
+      libgtest-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Problem tests are real test-framework code (see README "Automated tests
+# for problems"), not JSON args/expected - GoogleTest for C++, JUnit for
+# Java. libgtest-dev on Ubuntu 26.04 already ships prebuilt static libs
+# (no cmake build-from-source step needed, unlike older Ubuntu releases).
+# JUnit/hamcrest aren't apt-packaged at all - vendor the jars directly.
+RUN mkdir -p /usr/local/lib/junit && \
+    curl -fsSL -o /usr/local/lib/junit/junit.jar https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar && \
+    curl -fsSL -o /usr/local/lib/junit/hamcrest.jar https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+
+# Pre-warm a Go build cache at image-build time, baked into the image, for
+# the Go-test language variant (id 92 below). Found the hard way: unlike
+# id 60's plain `go build` (a small dependency graph - just fmt/runtime),
+# `go test` pulls in a much bigger one (testing + its own transitive deps -
+# reflect, unicode/utf16, internal/runtime/pprof/label, ...), and Ubuntu's
+# apt-packaged golang-go doesn't ship prebuilt stdlib .a archives the way
+# some other Go distributions do. Every submission starts from an empty
+# per-box GOCACHE, so without this, every single "Run tests"/"Submit"
+# rebuilds that entire graph from scratch - which both OOMs under the
+# rlimit-only sandbox's per-process memory cap and blows past any
+# reasonable wall_time_limit (measured ~34s just for the build). Baking a
+# warm cache here means only the tiny candidate+test file itself needs
+# compiling per submission. world-writable: isolate boxes run as one of
+# many sandboxed uids (first_uid=60000+), any of which needs to read (and
+# potentially add cache entries of its own) - Go's cache format is
+# explicitly designed to be safe under concurrent access from multiple
+# processes sharing one $GOCACHE, which is exactly this situation.
+RUN mkdir -p /usr/local/lib/gocache /tmp/gocache-warm && \
+    printf '%s\n' \
+      'package main' \
+      'import (' \
+      '  "testing"' \
+      '  "fmt"' \
+      '  "sort"' \
+      '  "strings"' \
+      '  "strconv"' \
+      '  "math"' \
+      ')' \
+      'var _ = fmt.Sprintf' \
+      'var _ = sort.Ints' \
+      'var _ = strings.Contains' \
+      'var _ = strconv.Itoa' \
+      'var _ = math.Abs' \
+      'func TestWarm(t *testing.T) {}' \
+      > /tmp/gocache-warm/main_test.go && \
+    cd /tmp/gocache-warm && \
+    GOCACHE=/usr/local/lib/gocache GO111MODULE=off go test -p 1 -json . && \
+    rm -rf /tmp/gocache-warm && \
+    chmod -R 777 /usr/local/lib/gocache
 
 RUN git clone --depth 1 --branch v2.6 https://github.com/ioi/isolate.git /tmp/isolate && \
     cd /tmp/isolate && make -j"$(nproc)" && make install && \
@@ -182,6 +232,71 @@ Language.create!(
            '(mariadbd --datadir=./db --socket=$SOCK --skip-networking --pid-file=./mariadb.pid >/dev/null 2>&1 &) && ' \
            'for i in $(seq 1 30); do mariadb --socket=$SOCK -e "SELECT 1" >/dev/null 2>&1 && break; sleep 0.2; done && ' \
            'mariadb --socket=$SOCK < script.sql; RC=$?; rm -f "$SOCK"; exit $RC'
+)
+
+# Test-mode language variants for the problem-tests pipeline
+# (server/src/testHarness/*.js, server/src/testRunner.js) - never exposed
+# via GET /languages, only used internally when submitting a candidate's
+# code combined with a problem's real test-framework code. Deliberately
+# separate ids from the plain-execution entries above: compiling/running a
+# GoogleTest or JUnit binary is a fundamentally different command line than
+# running a candidate's program directly, not just a flag away.
+#
+# Python (71) and Bash (46) need no separate entry - unittest is stdlib
+# (just invoked differently from within the generated source, same
+# `python3 script.py` run_cmd works) and Bash tests are plain shell code
+# concatenated after the candidate's script, no separate toolchain at all.
+Language.create!(
+  id: 91,
+  name: 'C++ (GoogleTest)',
+  source_file: 'main.cpp',
+  compile_cmd: '/usr/bin/g++-15 %s -std=c++26 -fdiagnostics-color=always main.cpp -lgtest -pthread -o a.out',
+  run_cmd: './a.out --gtest_print_time=0'
+)
+Language.create!(
+  id: 92,
+  name: 'Go (go test)',
+  # go test requires a _test.go-suffixed filename to discover Test funcs at
+  # all - GO111MODULE=off matches id 60's own convention (no go.mod dance).
+  # -p 1 (build parallelism 1): with an empty GOCACHE, `go test` compiles a
+  # surprising amount of the standard library from scratch (testing/fmt's
+  # own transitive deps), and the default parallel build spawns enough
+  # concurrent compiler subprocesses to blow through the sandbox's open
+  # file descriptor limit ("too many open files") well before it's actually
+  # out of CPU or memory - only found by submitting a real test through the
+  # live isolate sandbox, not by running go test locally outside it.
+  source_file: 'main_test.go',
+  run_cmd: 'GOCACHE=/usr/local/lib/gocache GO111MODULE=off /usr/bin/go test -p 1 -json .'
+)
+Language.create!(
+  id: 93,
+  name: 'Java (JUnit)',
+  # SigRunner is the harness-generated entry point - it runs @Test methods
+  # via plain reflection rather than org.junit.runner.JUnitCore, since
+  # JUnit's own runner requires the test class to be public, and javac
+  # only allows one public top-level class per file matching the filename
+  # (source_file here is fixed to "SigRunner.java" - see
+  # server/src/testHarness/java.js for why reflection, not JUnitCore).
+  # SigRunner itself is therefore NOT public and neither is the candidate's
+  # Solution class or the problem author's SigTests test class - all three
+  # coexist as package-private classes in the one generated file.
+  #
+  # -J-Xmx512m et al: same rlimit-only-sandbox memory caps id 62's
+  # compile_cmd already needs and for the same reason (javac is itself a
+  # JVM program that reserves a chunk of metaspace/compressed-class-space
+  # up front) - omitting them here reproduced id 62's exact original bug
+  # ("insufficient memory... Failed to reserve memory for metaspace"),
+  # only found by actually compiling a real submission through Judge0.
+  source_file: 'SigRunner.java',
+  compile_cmd: '/usr/lib/jvm/java-25-openjdk-amd64/bin/javac ' \
+               '-J-Xmx512m -J-XX:MaxMetaspaceSize=128m -J-XX:CompressedClassSpaceSize=64m ' \
+               '-cp /usr/local/lib/junit/junit.jar:/usr/local/lib/junit/hamcrest.jar ' \
+               '%s SigRunner.java',
+  run_cmd: '/usr/lib/jvm/java-25-openjdk-amd64/bin/java ' \
+           '-cp .:/usr/local/lib/junit/junit.jar:/usr/local/lib/junit/hamcrest.jar ' \
+           '-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:-UsePerfData -Xshare:off ' \
+           '-Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -XX:CompressedClassSpaceSize=64m ' \
+           'SigRunner'
 )
 SIGNALSTAGE_SEEDS
 RUN cat /tmp/signalstage_seeds.rb >> /api/db/seeds.rb && rm /tmp/signalstage_seeds.rb

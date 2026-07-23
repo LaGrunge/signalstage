@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [copiedId, setCopiedId] = useState(null);
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(null);
   const [creatingFromProblem, setCreatingFromProblem] = useState(null);
+  const [activeTab, setActiveTab] = useState("sessions"); // sessions | personal | shared | problems
   const navigate = useNavigate();
   const user = getUser();
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
@@ -171,97 +172,125 @@ export default function Dashboard() {
       </form>
       {error && <div className="error">{error}</div>}
 
-      <h2>Sessions</h2>
-      <CardGrid>
-        {rooms.map((r) => (
-          <PreviewCard
-            key={r.id}
-            title={r.title}
-            language={r.language}
-            preview={r.preview}
-            footer={`refreshed ${formatRelativeTime(r.last_active_at)}`}
-            participantCount={r.participantCount}
-            onClick={() => navigate(`/room/${r.id}`)}
-            onRename={(newTitle) => renameRoom(r.id, newTitle)}
-            actions={[
-              { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
-              { key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) },
-            ]}
-          />
-        ))}
-        {rooms.length === 0 && <div className="muted">No sessions yet</div>}
-      </CardGrid>
+      <div className="dashboard-tabs">
+        <button className={activeTab === "sessions" ? "active" : ""} onClick={() => setActiveTab("sessions")}>
+          Sessions
+        </button>
+        <button className={activeTab === "personal" ? "active" : ""} onClick={() => setActiveTab("personal")}>
+          Personal templates
+        </button>
+        <button className={activeTab === "shared" ? "active" : ""} onClick={() => setActiveTab("shared")}>
+          Shared templates
+        </button>
+        <button className={activeTab === "problems" ? "active" : ""} onClick={() => setActiveTab("problems")}>
+          Problems
+        </button>
+      </div>
 
-      <h2>Personal templates</h2>
-      <p className="muted">
-        Save one from inside a session ("Save as template"). Click a card to start a new session from it.
-      </p>
-      <CardGrid>
-        {personalTemplates.map((t) => (
-          <PreviewCard
-            key={t.id}
-            title={t.title}
-            language={t.language}
-            preview={t.code}
-            footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
-            onClick={() => createFromTemplate(t)}
-            onRename={(newTitle) => renameTemplate(t.id, newTitle)}
-            actions={[
-              { key: "share", label: "Share with all interviewers", onClick: () => toggleTemplateShared(t) },
-              { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
-            ]}
-          />
-        ))}
-        {personalTemplates.length === 0 && <div className="muted">No personal templates yet</div>}
-      </CardGrid>
+      {activeTab === "sessions" && (
+        <CardGrid>
+          {rooms.map((r) => (
+            <PreviewCard
+              key={r.id}
+              title={r.title}
+              language={r.language}
+              preview={r.preview}
+              footer={`refreshed ${formatRelativeTime(r.last_active_at)}`}
+              participantCount={r.participantCount}
+              onClick={() => navigate(`/room/${r.id}`)}
+              onRename={(newTitle) => renameRoom(r.id, newTitle)}
+              actions={[
+                { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
+                { key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) },
+              ]}
+            />
+          ))}
+          {rooms.length === 0 && <div className="muted">No sessions yet</div>}
+        </CardGrid>
+      )}
 
-      <h2>Shared templates</h2>
-      <p className="muted">The common task bank - visible to every interviewer.</p>
-      <CardGrid>
-        {sharedTemplates.map((t) => (
-          <PreviewCard
-            key={t.id}
-            title={t.title}
-            language={t.language}
-            preview={t.code}
-            footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
-            onClick={() => createFromTemplate(t)}
-            onRename={t.mine ? (newTitle) => renameTemplate(t.id, newTitle) : undefined}
-            actions={
-              t.mine
-                ? [
-                    { key: "unshare", label: "Make personal", onClick: () => toggleTemplateShared(t) },
-                    { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
-                  ]
-                : []
-            }
-          />
-        ))}
-        {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
-      </CardGrid>
+      {activeTab === "personal" && (
+        <>
+          <p className="muted">
+            Save one from inside a session ("Save as template"). Click a card to start a new session from it.
+          </p>
+          <CardGrid>
+            {personalTemplates.map((t) => (
+              <PreviewCard
+                key={t.id}
+                title={t.title}
+                language={t.language}
+                preview={t.code}
+                footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
+                onClick={() => createFromTemplate(t)}
+                onRename={(newTitle) => renameTemplate(t.id, newTitle)}
+                actions={[
+                  { key: "share", label: "Share with all interviewers", onClick: () => toggleTemplateShared(t) },
+                  { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
+                ]}
+              />
+            ))}
+            {personalTemplates.length === 0 && <div className="muted">No personal templates yet</div>}
+          </CardGrid>
+        </>
+      )}
 
-      <h2>Problems</h2>
-      <p className="muted">
-        Structured tasks with automated tests - manage the full set (description, starter code, reference
-        solutions, tests) in the <button className="link" onClick={() => navigate("/problems")}>Problem bank</button>.
-        Click a card to start a new session from it.
-      </p>
-      <CardGrid>
-        {problems.map((p) => (
-          <PreviewCard
-            key={p.id}
-            title={p.title}
-            preview={p.description}
-            footer={
-              creatingFromProblem === p.id
-                ? "Creating session…"
-                : `${p.functionName} · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`
-            }
-            onClick={() => createFromProblem(p)}
-          />
-        ))}
-        {problems.length === 0 && <div className="muted">No problems yet</div>}
-      </CardGrid>
+      {activeTab === "shared" && (
+        <>
+          <p className="muted">The common task bank - visible to every interviewer.</p>
+          <CardGrid>
+            {sharedTemplates.map((t) => (
+              <PreviewCard
+                key={t.id}
+                title={t.title}
+                language={t.language}
+                preview={t.code}
+                footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
+                onClick={() => createFromTemplate(t)}
+                onRename={t.mine ? (newTitle) => renameTemplate(t.id, newTitle) : undefined}
+                actions={
+                  t.mine
+                    ? [
+                        { key: "unshare", label: "Make personal", onClick: () => toggleTemplateShared(t) },
+                        { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
+                      ]
+                    : []
+                }
+              />
+            ))}
+            {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
+          </CardGrid>
+        </>
+      )}
+
+      {activeTab === "problems" && (
+        <>
+          <p className="muted">
+            Structured tasks with automated tests - manage the full set (folders, difficulty, description,
+            starter code, reference solutions, tests) in the{" "}
+            <button className="link" onClick={() => navigate("/problems")}>
+              Problem bank
+            </button>
+            . Click a card to start a new session from it.
+          </p>
+          <CardGrid>
+            {problems.map((p) => (
+              <PreviewCard
+                key={p.id}
+                title={p.title}
+                preview={p.description}
+                footer={
+                  creatingFromProblem === p.id
+                    ? "Creating session…"
+                    : `${"★".repeat(p.difficulty)}${"☆".repeat(5 - p.difficulty)} · ${p.likesCount} ♥ · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`
+                }
+                onClick={() => createFromProblem(p)}
+              />
+            ))}
+            {problems.length === 0 && <div className="muted">No problems yet</div>}
+          </CardGrid>
+        </>
+      )}
     </div>
   );
 }

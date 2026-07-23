@@ -1,28 +1,23 @@
-// Unique markers wrapping the harness's structured result block in stdout,
-// so a candidate's own stray prints (debugging output before/after the
-// driver runs) survive alongside it instead of being mistaken for it.
-// One JSON object per line between the markers, not a single JSON array -
-// a hard crash partway through (e.g. a C++ segfault) still leaves earlier
-// lines parseable instead of losing the whole run to one malformed array.
-export const TESTS_BEGIN = "##SIGNALSTAGE_TESTS_BEGIN##";
-export const TESTS_END = "##SIGNALSTAGE_TESTS_END##";
+// Shared line-prefix protocol used by the languages where we generate our
+// own emit code (cpp/java/bash) - Python/Go instead parse each language's
+// own native structured test output directly (unittest's verbose text,
+// `go test -json`), so they don't need this at all. Distinctive enough
+// that a candidate's own stray print output won't collide with it by
+// accident; unmatched lines are just ignored, not an error.
+export const OK_PREFIX = "##SIG_TEST_OK##";
+export const FAIL_PREFIX = "##SIG_TEST_FAIL##";
 
-export function parseResultLines(stdout) {
-  const beginIdx = stdout.indexOf(TESTS_BEGIN);
-  const endIdx = stdout.indexOf(TESTS_END);
-  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) return null;
-
-  const block = stdout.slice(beginIdx + TESTS_BEGIN.length, endIdx);
+export function parseMarkerLines(stdout) {
   const results = [];
-  for (const line of block.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      results.push(JSON.parse(trimmed));
-    } catch {
-      // Ignore a stray non-JSON line rather than failing the whole parse -
-      // shouldn't happen from our own generated code, but don't let one
-      // corrupt line take down every other test case's result with it.
+  for (const line of (stdout || "").split("\n")) {
+    if (line.startsWith(OK_PREFIX)) {
+      results.push({ name: line.slice(OK_PREFIX.length).trim(), passed: true, message: null });
+    } else if (line.startsWith(FAIL_PREFIX)) {
+      const rest = line.slice(FAIL_PREFIX.length).trim();
+      const sepIdx = rest.indexOf(" :: ");
+      const name = sepIdx === -1 ? rest : rest.slice(0, sepIdx);
+      const message = sepIdx === -1 ? null : rest.slice(sepIdx + 4);
+      results.push({ name, passed: false, message });
     }
   }
   return results;

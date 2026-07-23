@@ -1,56 +1,62 @@
 import { harnessFor } from "./testHarness/index.js";
-import { parseResultLines } from "./testHarness/markers.js";
-import { submitToJudge0 } from "./judge0.js";
+import { submitToJudge0Raw, TEST_LANGUAGES } from "./judge0.js";
 
-// Runs `testCases` against `candidateCode` for one interview problem. Used
-// both by the room-facing "Run tests"/"Submit" flow (server/src/rooms.js)
-// and by problem authoring's "Validate against reference solution" flow
-// (server/src/problems.js) - same function either way, only the code
-// string and which test cases get passed in differ.
-export async function runTests({ language, candidateCode, functionName, returnType, params, testCases }) {
+// One Judge0 submission = candidate code + one blob of real test-framework
+// code (public or hidden). Returns a synthetic "batch error" single result
+// if the framework's own output couldn't be parsed at all (compile error,
+// crash before any test ran) - callers still get an array back either way.
+async function runBatch(language, candidateCode, testCode, isHidden) {
   const harness = harnessFor(language);
-  if (!harness) {
+  const lang = TEST_LANGUAGES[language];
+  if (!harness || !lang) {
     throw new Error(`automated tests are not supported for language: ${language}`);
   }
-  if (testCases.length === 0) {
-    return { results: [], compileOutput: "", stderr: "", status: null };
-  }
 
-  const source = harness.buildSource(candidateCode, { functionName, returnType, params, testCases });
-  const judgeResult = await submitToJudge0(language, source, "");
-  const parsed = parseResultLines(judgeResult.stdout);
+  const source = harness.buildSource(candidateCode, testCode);
+  const judgeResult = await submitToJudge0Raw(lang, source, "");
+  const parsed = harness.parseResults(judgeResult.stdout);
 
-  // Anything other than exactly one parsed line per test case (compile
-  // error, a crash before the driver printed anything, a hard crash
-  // mid-run that took the process down) - report every case as errored
-  // rather than guessing which ones actually ran. The caller always gets
-  // exactly one result per input test case, never a silent gap.
-  if (!parsed || parsed.length !== testCases.length) {
+  if (!parsed.length) {
     const infraError =
       judgeResult.compileOutput || judgeResult.stderr || judgeResult.message || "no test output produced";
     return {
-      results: testCases.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        isHidden: tc.isHidden,
-        passed: false,
-        actual: null,
-        error: infraError,
-      })),
+      results: [{ name: "(all tests)", passed: false, isHidden, message: infraError }],
       compileOutput: judgeResult.compileOutput,
       stderr: judgeResult.stderr,
       status: judgeResult.status,
     };
   }
 
-  const results = testCases.map((tc, i) => ({
-    id: tc.id,
-    name: tc.name,
-    isHidden: tc.isHidden,
-    passed: Boolean(parsed[i].passed),
-    actual: parsed[i].actual,
-    error: parsed[i].error,
-  }));
+  return {
+    results: parsed.map((r) => ({ ...r, isHidden })),
+    compileOutput: judgeResult.compileOutput,
+    stderr: judgeResult.stderr,
+    status: judgeResult.status,
+  };
+}
 
-  return { results, compileOutput: judgeResult.compileOutput, stderr: judgeResult.stderr, status: judgeResult.status };
+// mode "run": public test code only (fast feedback, not persisted).
+// mode "submit": public AND hidden test code, each as its own Judge0
+// submission (simpler and more robust than trying to tell which results
+// came from which blob after concatenating them into one run - a crash in
+// a real test framework doesn't always leave that reconstructible).
+export async function runProblemTests({ language, candidateCode, publicTestCode, hiddenTestCode, mode }) {
+  const batches = [];
+  if ((publicTestCode || "").trim()) {
+    batches.push(runBatch(language, candidateCode, publicTestCode, false));
+  }
+  if (mode === "submit" && (hiddenTestCode || "").trim()) {
+    batches.push(runBatch(language, candidateCode, hiddenTestCode, true));
+  }
+  if (batches.length === 0) {
+    return { results: [], compileOutput: "", stderr: "", status: null };
+  }
+
+  const batchResults = await Promise.all(batches);
+  return {
+    results: batchResults.flatMap((b) => b.results),
+    compileOutput: batchResults.map((b) => b.compileOutput).filter(Boolean).join("\n"),
+    stderr: batchResults.map((b) => b.stderr).filter(Boolean).join("\n"),
+    status: batchResults[batchResults.length - 1].status,
+  };
 }

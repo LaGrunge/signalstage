@@ -1,80 +1,114 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Editor from "@monaco-editor/react";
 import { api } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 
-// Mirrors server/src/testHarness/types.js's v1 type system - keep in sync.
-const TYPE_OPTIONS = ["int", "double", "bool", "string", "int[]", "double[]", "string[]"];
-// Only these have a test harness (server/src/testHarness/index.js) - bash/
-// mariadb don't fit the "candidate implements one function" model.
-const TESTABLE_LANGUAGES = ["python", "go", "cpp", "java"];
+// Only these have a real test harness (server/src/testHarness/index.js) -
+// mariadb doesn't fit the "author writes real test code" model at all.
+const TESTABLE_LANGUAGES = ["python", "go", "cpp", "java", "bash"];
+const MONACO_LANGUAGE = { python: "python", go: "go", cpp: "cpp", java: "java", bash: "shell" };
 
 function emptyDraft() {
   return {
     id: null,
     title: "",
     description: "",
-    functionName: "",
-    returnType: "int",
+    signatureHint: "",
+    difficulty: 3,
+    folderId: null,
     shared: false,
-    params: [{ name: "", type: "int" }],
     starters: TESTABLE_LANGUAGES.map((language) => ({ language, code: "" })),
     solutions: [],
-    tests: [],
+    testCode: TESTABLE_LANGUAGES.map((language) => ({ language, publicCode: "", hiddenCode: "" })),
   };
 }
 
-// Array/int/double/bool params are typed via JSON syntax in the input
-// (e.g. "[2, 7, 11, 15]", "true") - only plain strings are taken as raw
-// text, since JSON-quoting every string field would be needless friction.
-function parseValue(type, raw) {
-  if (type === "string") return raw;
-  return JSON.parse(raw);
-}
-
-function stringifyValue(type, value) {
-  if (type === "string") return value ?? "";
-  if (value === undefined) return type.endsWith("[]") ? "[]" : "";
-  return JSON.stringify(value);
+function StarPicker({ value, onChange }) {
+  return (
+    <div className="star-picker">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className={`star-btn ${n <= value ? "filled" : ""}`}
+          onClick={() => onChange(n)}
+          aria-label={`${n} star${n > 1 ? "s" : ""}`}
+        >
+          {n <= value ? "★" : "☆"}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export default function Problems() {
   const navigate = useNavigate();
   const [problems, setProblems] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [activeFolderId, setActiveFolderId] = useState(undefined); // undefined = All
+  const [newFolderTitle, setNewFolderTitle] = useState("");
   const [draft, setDraft] = useState(null);
+  const [activeLang, setActiveLang] = useState("python");
   const [saving, setSaving] = useState(false);
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState("");
 
-  function loadProblems() {
-    return api.get("/problems").then(({ data }) => setProblems(data));
+  function loadFolders() {
+    return api.get("/problems/folders").then(({ data }) => setFolders(data));
+  }
+
+  function loadProblems(folderId) {
+    const query = folderId === undefined ? "" : `?folderId=${encodeURIComponent(folderId ?? "")}`;
+    return api.get(`/problems${query}`).then(({ data }) => setProblems(data));
   }
 
   useEffect(() => {
-    loadProblems().catch(() => setError("Failed to load problems"));
+    loadFolders().catch(() => setError("Failed to load folders"));
   }, []);
+
+  useEffect(() => {
+    loadProblems(activeFolderId).catch(() => setError("Failed to load problems"));
+  }, [activeFolderId]);
+
+  async function createFolder(e) {
+    e.preventDefault();
+    if (!newFolderTitle.trim()) return;
+    try {
+      await api.post("/problems/folders", { title: newFolderTitle.trim() });
+      setNewFolderTitle("");
+      await loadFolders();
+    } catch {
+      setError("Failed to create folder");
+    }
+  }
+
+  async function deleteFolder(id) {
+    if (!window.confirm("Delete this folder?")) return;
+    try {
+      await api.delete(`/problems/folders/${id}`);
+      if (activeFolderId === id) setActiveFolderId(undefined);
+      await loadFolders();
+    } catch (err) {
+      setError(err.response?.data?.error === "folder is not empty" ? "Folder is not empty - move or delete its problems first" : "Failed to delete folder");
+    }
+  }
 
   function startCreate() {
     setValidation(null);
-    setDraft(emptyDraft());
+    setActiveLang("python");
+    setDraft({ ...emptyDraft(), folderId: activeFolderId || null });
   }
 
   async function startEdit(summary) {
     setValidation(null);
     setError("");
+    setActiveLang("python");
     try {
       const { data } = await api.get(`/problems/${summary.id}`);
-      // Server returns real JSON values (numbers/arrays/etc) for args and
-      // expected - the editor's inputs always hold the JSON-syntax string
-      // form (see parseValue/stringifyValue), so convert once on load.
-      const tests = data.tests.map((t) => ({
-        ...t,
-        args: data.params.map((p, i) => stringifyValue(p.type, t.args[i])),
-        expected: stringifyValue(data.returnType, t.expected),
-      }));
-      setDraft({ ...data, tests });
+      setDraft(data);
     } catch {
       setError("Failed to load problem");
     }
@@ -84,9 +118,18 @@ export default function Problems() {
     if (!window.confirm("Delete this problem? This cannot be undone.")) return;
     try {
       await api.delete(`/problems/${id}`);
-      await loadProblems();
+      await loadProblems(activeFolderId);
     } catch {
       setError("Failed to delete problem");
+    }
+  }
+
+  async function toggleLike(problem) {
+    try {
+      await api.post(`/problems/${problem.id}/like`, {});
+      await loadProblems(activeFolderId);
+    } catch {
+      setError("Failed to update like");
     }
   }
 
@@ -94,23 +137,12 @@ export default function Problems() {
     setDraft((d) => ({ ...d, ...patch }));
   }
 
-  function updateParam(i, patch) {
-    setDraft((d) => ({ ...d, params: d.params.map((p, j) => (j === i ? { ...p, ...patch } : p)) }));
-  }
-
-  function addParam() {
-    setDraft((d) => ({ ...d, params: [...d.params, { name: "", type: "int" }] }));
-  }
-
-  function removeParam(i) {
-    setDraft((d) => ({ ...d, params: d.params.filter((_p, j) => j !== i) }));
-  }
-
   function updateStarter(language, code) {
-    setDraft((d) => ({
-      ...d,
-      starters: d.starters.map((s) => (s.language === language ? { ...s, code } : s)),
-    }));
+    setDraft((d) => ({ ...d, starters: d.starters.map((s) => (s.language === language ? { ...s, code } : s)) }));
+  }
+
+  function updateTestCode(language, patch) {
+    setDraft((d) => ({ ...d, testCode: d.testCode.map((t) => (t.language === language ? { ...t, ...patch } : t)) }));
   }
 
   function addSolution() {
@@ -125,70 +157,20 @@ export default function Problems() {
     setDraft((d) => ({ ...d, solutions: d.solutions.filter((_s, j) => j !== i) }));
   }
 
-  function addTest() {
-    setDraft((d) => ({
-      ...d,
-      tests: [...d.tests, { name: "", args: d.params.map(() => ""), expected: "", isHidden: true }],
-    }));
-  }
-
-  function updateTestField(i, patch) {
-    setDraft((d) => ({ ...d, tests: d.tests.map((t, j) => (j === i ? { ...t, ...patch } : t)) }));
-  }
-
-  function updateTestArg(i, argIndex, raw) {
-    setDraft((d) => ({
-      ...d,
-      tests: d.tests.map((t, j) => {
-        if (j !== i) return t;
-        const args = [...t.args];
-        args[argIndex] = raw;
-        return { ...t, args };
-      }),
-    }));
-  }
-
-  function removeTest(i) {
-    setDraft((d) => ({ ...d, tests: d.tests.filter((_t, j) => j !== i) }));
-  }
-
-  function buildPayload() {
-    // Tests are edited as raw text in the UI (args/expected inputs hold
-    // strings even for numeric/array types) - parse them into real JSON
-    // values against each param's declared type right before saving.
-    const tests = draft.tests.map((t) => ({
-      name: t.name,
-      isHidden: Boolean(t.isHidden),
-      args: draft.params.map((p, i) => parseValue(p.type, t.args[i] ?? "")),
-      expected: parseValue(draft.returnType, t.expected ?? ""),
-    }));
-    return { ...draft, tests };
-  }
-
   async function saveDraft() {
-    if (!draft.title.trim() || !draft.functionName.trim()) {
-      setError("Title and function name are required");
+    if (!draft.title.trim()) {
+      setError("Title is required");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      const payload = buildPayload();
-      const { data } = draft.id
-        ? await api.put(`/problems/${draft.id}`, payload)
-        : await api.post("/problems", payload);
-      // Same re-stringify as startEdit - the response holds real JSON
-      // values, but the editor's test inputs always hold JSON-syntax text.
-      const tests = data.tests.map((t) => ({
-        ...t,
-        args: data.params.map((p, i) => stringifyValue(p.type, t.args[i])),
-        expected: stringifyValue(data.returnType, t.expected),
-      }));
-      setDraft({ ...data, tests });
+      const { data } = draft.id ? await api.put(`/problems/${draft.id}`, draft) : await api.post("/problems", draft);
+      setDraft(data);
       setValidation(null);
-      await loadProblems();
+      await loadProblems(activeFolderId);
     } catch (err) {
-      setError(err.response?.data?.error || "Failed to save problem - check that test args/expected are valid values for each param's type");
+      setError(err.response?.data?.error || "Failed to save problem");
     } finally {
       setSaving(false);
     }
@@ -211,6 +193,9 @@ export default function Problems() {
     }
   }
 
+  const activeStarter = draft?.starters.find((s) => s.language === activeLang);
+  const activeTestCode = draft?.testCode.find((t) => t.language === activeLang);
+
   return (
     <div className="dashboard">
       <header>
@@ -225,23 +210,50 @@ export default function Problems() {
       {error && <div className="error">{error}</div>}
 
       {!draft && (
-        <>
-          <button onClick={startCreate}>New problem</button>
-          <h2>Problems</h2>
-          <CardGrid>
-            {problems.map((p) => (
-              <PreviewCard
-                key={p.id}
-                title={p.title}
-                preview={p.description}
-                footer={`${p.functionName} · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`}
-                onClick={() => startEdit(p)}
-                actions={p.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }] : []}
-              />
+        <div className="problems-layout">
+          <div className="folder-sidebar">
+            <button className={activeFolderId === undefined ? "active" : ""} onClick={() => setActiveFolderId(undefined)}>
+              All problems
+            </button>
+            <button className={activeFolderId === null ? "active" : ""} onClick={() => setActiveFolderId(null)}>
+              Unfiled
+            </button>
+            {folders.map((f) => (
+              <div key={f.id} className="folder-row">
+                <button className={activeFolderId === f.id ? "active" : ""} onClick={() => setActiveFolderId(f.id)}>
+                  {f.title} ({f.problemCount})
+                </button>
+                <button className="link danger" onClick={() => deleteFolder(f.id)} title="Delete (only if empty)">
+                  ×
+                </button>
+              </div>
             ))}
-            {problems.length === 0 && <div className="muted">No problems yet</div>}
-          </CardGrid>
-        </>
+            <form onSubmit={createFolder} className="new-folder-form">
+              <input placeholder="New folder…" value={newFolderTitle} onChange={(e) => setNewFolderTitle(e.target.value)} />
+              <button type="submit">+</button>
+            </form>
+          </div>
+
+          <div className="problems-main">
+            <button onClick={startCreate}>New problem</button>
+            <CardGrid>
+              {problems.map((p) => (
+                <PreviewCard
+                  key={p.id}
+                  title={p.title}
+                  preview={p.description}
+                  footer={`${"★".repeat(p.difficulty)}${"☆".repeat(5 - p.difficulty)} · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`}
+                  onClick={() => startEdit(p)}
+                  actions={[
+                    { key: "like", label: p.likedByMe ? `♥ Unlike (${p.likesCount})` : `♡ Like (${p.likesCount})`, onClick: () => toggleLike(p) },
+                    ...(p.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }] : []),
+                  ]}
+                />
+              ))}
+              {problems.length === 0 && <div className="muted">No problems yet</div>}
+            </CardGrid>
+          </div>
+        </div>
       )}
 
       {draft && (
@@ -261,53 +273,72 @@ export default function Problems() {
           <label>Description (shown to the candidate)</label>
           <textarea rows={6} value={draft.description} onChange={(e) => updateDraft({ description: e.target.value })} />
 
-          <label>
-            <input type="checkbox" checked={draft.shared} onChange={(e) => updateDraft({ shared: e.target.checked })} />
-            {" "}Share with all interviewers
-          </label>
+          <label>Signature hint (optional, free text shown to the candidate)</label>
+          <input
+            placeholder="e.g. def is_palindrome(s: str) -> bool"
+            value={draft.signatureHint}
+            onChange={(e) => updateDraft({ signatureHint: e.target.value })}
+          />
 
-          <h3 className="side-panel-subheading">Function signature</h3>
-          <div className="problem-signature-row">
-            <input
-              placeholder="functionName"
-              value={draft.functionName}
-              onChange={(e) => updateDraft({ functionName: e.target.value })}
-            />
-            <span className="muted">returns</span>
-            <select value={draft.returnType} onChange={(e) => updateDraft({ returnType: e.target.value })}>
-              {TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          {draft.params.map((p, i) => (
-            <div key={i} className="problem-param-row">
-              <input placeholder="param name" value={p.name} onChange={(e) => updateParam(i, { name: e.target.value })} />
-              <select value={p.type} onChange={(e) => updateParam(i, { type: e.target.value })}>
-                {TYPE_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+          <div className="problem-meta-row">
+            <div>
+              <label>Difficulty</label>
+              <StarPicker value={draft.difficulty} onChange={(difficulty) => updateDraft({ difficulty })} />
+            </div>
+            <div>
+              <label>Folder</label>
+              <select value={draft.folderId ?? ""} onChange={(e) => updateDraft({ folderId: e.target.value || null })}>
+                <option value="">Unfiled</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.title}
                   </option>
                 ))}
               </select>
-              <button className="link danger" onClick={() => removeParam(i)}>
-                Remove
-              </button>
             </div>
-          ))}
-          <button className="link" onClick={addParam}>
-            + Add parameter
-          </button>
+            <label>
+              <input type="checkbox" checked={draft.shared} onChange={(e) => updateDraft({ shared: e.target.checked })} />
+              {" "}Share with all interviewers
+            </label>
+          </div>
 
-          <h3 className="side-panel-subheading">Starter code (per language, shown to the candidate)</h3>
-          {draft.starters.map((s) => (
-            <div key={s.language} className="problem-starter-block">
-              <label>{s.language}</label>
-              <textarea rows={4} value={s.code} onChange={(e) => updateStarter(s.language, e.target.value)} />
-            </div>
-          ))}
+          <div className="lang-tabs">
+            {TESTABLE_LANGUAGES.map((l) => (
+              <button key={l} className={activeLang === l ? "active" : ""} onClick={() => setActiveLang(l)}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <label>Starter code (shown to the candidate)</label>
+          <Editor
+            height="160px"
+            language={MONACO_LANGUAGE[activeLang]}
+            theme="vs-dark"
+            value={activeStarter?.code || ""}
+            onChange={(v) => updateStarter(activeLang, v ?? "")}
+            options={{ fontSize: 13, minimap: { enabled: false } }}
+          />
+
+          <label>Public test code (real {activeLang} test code, shown to the candidate as runnable examples)</label>
+          <Editor
+            height="200px"
+            language={MONACO_LANGUAGE[activeLang]}
+            theme="vs-dark"
+            value={activeTestCode?.publicCode || ""}
+            onChange={(v) => updateTestCode(activeLang, { publicCode: v ?? "" })}
+            options={{ fontSize: 13, minimap: { enabled: false } }}
+          />
+
+          <label>Hidden test code (real {activeLang} test code, never shown to the candidate)</label>
+          <Editor
+            height="200px"
+            language={MONACO_LANGUAGE[activeLang]}
+            theme="vs-dark"
+            value={activeTestCode?.hiddenCode || ""}
+            onChange={(v) => updateTestCode(activeLang, { hiddenCode: v ?? "" })}
+            options={{ fontSize: 13, minimap: { enabled: false } }}
+          />
 
           <h3 className="side-panel-subheading">
             Reference solutions (authoring only - never shown to or run for candidates)
@@ -331,7 +362,14 @@ export default function Problems() {
                   Remove
                 </button>
               </div>
-              <textarea rows={6} value={s.code} onChange={(e) => updateSolution(i, { code: e.target.value })} />
+              <Editor
+                height="180px"
+                language={MONACO_LANGUAGE[s.language]}
+                theme="vs-dark"
+                value={s.code}
+                onChange={(v) => updateSolution(i, { code: v ?? "" })}
+                options={{ fontSize: 13, minimap: { enabled: false } }}
+              />
               {validation?.find((v) => v.solutionId === s.id) && (
                 <ValidationSummary result={validation.find((v) => v.solutionId === s.id)} />
               )}
@@ -347,44 +385,6 @@ export default function Problems() {
               </button>
             </div>
           )}
-
-          <h3 className="side-panel-subheading">Test cases</h3>
-          {draft.tests.map((t, i) => (
-            <div key={i} className="problem-test-block">
-              <div className="problem-test-row">
-                <input placeholder="case name" value={t.name} onChange={(e) => updateTestField(i, { name: e.target.value })} />
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={t.isHidden}
-                    onChange={(e) => updateTestField(i, { isHidden: e.target.checked })}
-                  />
-                  {" "}hidden
-                </label>
-                <button className="link danger" onClick={() => removeTest(i)}>
-                  Remove
-                </button>
-              </div>
-              <div className="problem-test-args">
-                {draft.params.map((p, j) => (
-                  <input
-                    key={j}
-                    placeholder={`${p.name || `arg${j}`} (${p.type})`}
-                    value={t.args[j] ?? ""}
-                    onChange={(e) => updateTestArg(i, j, e.target.value)}
-                  />
-                ))}
-                <input
-                  placeholder={`expected (${draft.returnType})`}
-                  value={t.expected ?? ""}
-                  onChange={(e) => updateTestField(i, { expected: e.target.value })}
-                />
-              </div>
-            </div>
-          ))}
-          <button className="link" onClick={addTest}>
-            + Add test case
-          </button>
         </div>
       )}
     </div>

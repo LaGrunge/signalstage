@@ -211,7 +211,13 @@ export default function Room() {
       const { data: full } = await api.get(`/problems/${summary.id}`);
       const { data: updatedRoom } = await api.patch(`/rooms/${roomId}`, { problemId: full.id });
       setRoom((r) => ({ ...r, problemId: updatedRoom.problemId }));
-      setProblem({ ...full, publicTests: full.tests.filter((t) => !t.isHidden) });
+      setProblem({
+        id: full.id,
+        title: full.title,
+        description: full.description,
+        signatureHint: full.signatureHint,
+        testCode: full.testCode.map((t) => ({ language: t.language, publicCode: t.publicCode })),
+      });
       setTestResults(null);
       const starter = full.starters.find((s) => s.language === language);
       if (starter) {
@@ -485,7 +491,7 @@ export default function Room() {
                       key={p.id}
                       title={p.title}
                       preview={p.description}
-                      footer={`${p.functionName} · refreshed ${formatRelativeTime(p.updated_at)}`}
+                      footer={`${"★".repeat(p.difficulty)}${"☆".repeat(5 - p.difficulty)} · refreshed ${formatRelativeTime(p.updated_at)}`}
                       onClick={() => attachProblem(p)}
                     />
                   ))}
@@ -525,18 +531,23 @@ export default function Room() {
               {taskOpen && (
                 <div className="task-panel-body">
                   <p className="task-description">{problem.description}</p>
-                  {problem.publicTests?.length > 0 && (
-                    <>
-                      <h4 className="side-panel-subheading">Examples</h4>
-                      {problem.publicTests.map((t) => (
-                        <div key={t.id} className="task-example">
-                          <strong>{t.name}</strong>
-                          <div className="muted">args: {JSON.stringify(t.args)}</div>
-                          <div className="muted">expected: {JSON.stringify(t.expected)}</div>
-                        </div>
-                      ))}
-                    </>
+                  {problem.signatureHint && (
+                    <p className="muted">
+                      Signature: <code>{problem.signatureHint}</code>
+                    </p>
                   )}
+                  {(() => {
+                    const publicCode = problem.testCode?.find((t) => t.language === language)?.publicCode;
+                    if (!publicCode?.trim()) return null;
+                    return (
+                      <>
+                        <h4 className="side-panel-subheading">Example tests ({language})</h4>
+                        <pre className="task-example">
+                          <code className="hljs" dangerouslySetInnerHTML={highlightCode(publicCode, language)} />
+                        </pre>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -567,20 +578,12 @@ export default function Room() {
                   )}
                   <div className="test-case-list">
                     {testResults.results.map((r, i) => (
-                      <div key={r.id || i} className={`test-case ${r.passed ? "passed" : "failed"}`}>
+                      <div key={i} className={`test-case ${r.passed ? "passed" : "failed"}`}>
                         <div className="test-case-title">
                           {r.passed ? "✅" : "❌"} {r.name}
-                          {r.isHidden && r.args === undefined ? " (hidden)" : ""}
+                          {r.isHidden ? " (hidden)" : ""}
                         </div>
-                        {r.args !== undefined && (
-                          <div className="muted">
-                            args: {JSON.stringify(r.args)} · expected: {JSON.stringify(r.expected)}
-                          </div>
-                        )}
-                        {r.actual !== undefined && r.actual !== null && (
-                          <div className="muted">actual: {r.actual}</div>
-                        )}
-                        {r.error && <div className="test-case-error">{r.error}</div>}
+                        {r.message && <div className="test-case-error">{r.message}</div>}
                       </div>
                     ))}
                   </div>

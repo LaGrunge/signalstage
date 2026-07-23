@@ -64,40 +64,96 @@ frontend (nginx, static React build)
 
 ## Automated tests for problems
 
-Candidates implement a single function (not a whole program) matching a
-problem's declared signature — a name, parameter types, and a return type
-drawn from a deliberately small set: `int`, `double`, `bool`, `string`, and
-single-level arrays of each (`int[]`, `double[]`, `string[]`). No nested
-objects/structs in v1.
+Tests are **real code in the target language** — the problem author writes
+an actual `unittest.TestCase` (Python), `TEST(Suite, Name)` block
+(C++/GoogleTest), `@Test`-annotated method (Java/JUnit), `func TestX(t
+*testing.T)` (Go), or plain assertion-calling script (Bash), calling
+whatever the candidate wrote however it likes. There is no structured
+args/expected/type system to fill in — the author's test code *is* the
+spec.
 
-`server/src/testHarness/{python,go,cpp,java}.js` each turn a problem's test
-cases into a small generated "driver" program: it embeds each test case's
-arguments/expected value as a **native literal** in that language (not
-runtime JSON parsing — for Go/Java/C++ this means no JSON library is ever
-needed in the sandbox), calls the candidate's function, compares the result,
-catches per-case exceptions so one crashing case doesn't take down the rest,
-and prints one JSON result line per case between two unique markers
-(`server/src/testHarness/markers.js`). `server/src/testRunner.js` submits
-`candidate code + generated driver` as a single source string through the
-**exact same** `/submissions` Judge0 flow `/execute` already uses
-(`base64_encoded=true, wait=true`) — deliberately no `additional_files`,
-no `judge0.conf` changes, no Dockerfile changes. This was a scope call: the
-Judge0 sandbox has already eaten enough time in this project's history (see
-below) to not open a new feature surface on it unless there's no other way.
+Each problem stores, per language, two blobs of test code
+(`problem_test_code.public_code`/`hidden_code`): public code is shown to
+the candidate as runnable examples; hidden code never reaches the browser
+at all. **Run tests** submits `candidate code + public code` as one Judge0
+submission; **Submit** does that *and*, separately, `candidate code +
+hidden code` as a second submission — two independent Judge0 calls, merged
+client-side by `server/src/testRunner.js`, rather than trying to
+concatenate both blobs into one run and figure out after the fact which
+result came from which (simpler and more robust: a real crash mid-run
+doesn't leave you guessing which few of the merged tests actually executed).
 
-bash and mariadb are **not supported** for tests — a shell script or a
-single SQL statement doesn't fit the "candidate implements one function"
-model these harnesses assume.
+`server/src/testHarness/{python,go,cpp,java,bash}.js` each know how to wrap
+the author's test code with whatever boilerplate that language's real
+framework needs to report structured per-test pass/fail — a harness-owned
+`main()`/listener the author never sees, not a stub the author has to fill
+in:
+- **Python**: `unittest.TextTestRunner` forced onto stdout, its own verbose
+  per-test output parsed directly (no wrapping needed).
+- **Go**: `go test -json`, the toolchain's own real structured event
+  stream, likewise parsed directly.
+- **C++**: a custom `TestEventListener` (GoogleTest's own extension point)
+  prints one `##SIG_TEST_OK##`/`##SIG_TEST_FAIL##` line per test.
+- **Java**: **not** `org.junit.runner.JUnitCore` — JUnit's runner requires
+  the test class itself to be `public`, but javac only allows one `public`
+  top-level class per file and it must match the filename (fixed at
+  `SigRunner.java` here) - so the harness runs `@Test`-annotated methods via
+  plain reflection instead (still real `@Test`/`Assert`/`AssertionError`
+  throughout, just not JUnit's own runner). The author's test class must be
+  named exactly `SigTests` (a fixed convention, package-private) and the
+  candidate's must be `Solution`.
+- **Bash**: a small provided `assert_eq`/`assert_true`/`assert_false`
+  function library, genuinely executed, not a stub.
+
+Two brand-new Judge0 language ids exist purely for this (`judge0/Dockerfile`
+seeds 91/92/93 — C++/GoogleTest, Go/`go test`, Java/JUnit — Python and Bash
+reuse the existing plain-execution ids since nothing about compiling/running
+them differs). Only mariadb has no test harness at all — a single SQL
+statement doesn't fit any "author writes real test code" story.
+
+**Hard-won sandbox lessons**, worth knowing before touching this again:
+- `libgtest-dev` on Ubuntu 26.04 ships prebuilt `.a` files already (no
+  cmake build-from-source step, unlike older Ubuntu releases).
+- JUnit/hamcrest aren't apt-packaged - the jars are vendored directly into
+  the image, and deliberately under `/usr/local/lib/junit`, **not**
+  `/opt` - isolate's default sandbox directory rules don't expose `/opt` at
+  all (found by an "org.junit does not exist" compile error despite the
+  jar being right there on the host image).
+- `go test` with a cold `GOCACHE` compiles a surprising amount of the
+  standard library from scratch (`testing`'s own transitive deps, not just
+  `fmt`/`runtime` the way a plain `go build` needs) - this both blew
+  through the per-process file-descriptor limit ("too many open files",
+  fixed with `-p 1`) and the rlimit-only sandbox's per-process memory cap
+  ("out of memory... Failed to reserve memory for metaspace"-style crash),
+  and even once both were fixed, took over 30 real seconds - long enough to
+  hit the wall time limit on every single submission. Fixed by pre-warming
+  a real Go build cache at **image build time**, baked into
+  `/usr/local/lib/gocache` (again, not `/opt`) and left world-writable
+  (Go's cache format is explicitly designed to be safe under concurrent
+  access from multiple processes sharing one `$GOCACHE`, which is exactly
+  what many isolate boxes hitting the same baked-in path amounts to).
+- A `NZEC`/"Runtime Error" Judge0 status is *expected and correct* whenever
+  a real test actually fails - `RUN_ALL_TESTS()`/`go test`'s own exit code
+  is non-zero on any failure, by design. `testRunner.js` never gates on
+  Judge0's status field, only on whether it could parse the expected number
+  of structured per-test result lines out of stdout.
+- A panicking Go test does **not** behave like Python/Java/C++'s per-test
+  exception isolation - `go test` deliberately re-panics and kills the
+  whole process after logging the failure, so any tests after the
+  panicking one simply never run. `testRunner.js`'s "fewer results than
+  expected → report the rest as errored" fallback already covers this;
+  don't try to make Go behave like the others here, it's how the real
+  toolchain works.
 
 Reference solutions (`problem_solutions`) exist purely so an interviewer can
 click "Validate all solutions against tests" while authoring a problem and
 catch a wrong expected value or an ambiguous problem *before* a candidate
 ever sees it (`POST /problems/:id/validate`) — they're never shown to or
-run for candidates. Hidden test cases are also never sent to a candidate's
-browser at all (not just hidden client-side) — `GET /rooms/:id/problem`
-only ever selects non-hidden cases, and `POST /rooms/:id/tests` strips
-hidden-case detail down to `{name, passed}` in the response itself for
-anyone who isn't the room's owner.
+run for candidates.
+
+Problems also have a flat folder structure (create/delete-if-empty, no
+nesting), a 1–5 star difficulty rating, and a per-interviewer like toggle -
+all straightforward CRUD in `server/src/problems.js`, nothing sandbox-related.
 
 ## Quick start
 
@@ -425,12 +481,12 @@ on it in a real interview.
    button greys out live; re-enable and confirm it's usable again.
 7. Run some code as a "candidate" (second tab, no login) and confirm the
    interviewer's tab shows the "running code" indicator while it executes.
-8. Create a problem in the Problem bank (function name/params/return type,
-   a correct and an incorrect reference solution, a public and a hidden test
-   case), click "Validate all solutions against tests", and confirm the
-   correct solution passes all cases and the incorrect one fails at least
-   one. Attach it to a room, confirm "Run tests" only returns the public
-   case, "Submit" returns all cases with the hidden one's args/expected/
-   actual redacted for the candidate tab but fully visible in the
+8. Create a problem in the Problem bank (starter code, a correct and an
+   incorrect reference solution, real public and hidden test code, all for
+   the same language), click "Validate all solutions against tests", and
+   confirm the correct solution passes and the incorrect one fails at least
+   one test. Attach it to a room, confirm "Run tests" only runs the public
+   test code, "Submit" runs public and hidden with the hidden result's
+   failure message redacted for the candidate tab but fully visible in the
    interviewer's, and the "Disable candidate tests" toggle actually hides
    both buttons for the candidate.

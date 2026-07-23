@@ -130,43 +130,72 @@ already bit us here:
 
 ## Interview problems and automated tests
 
-Problems (`server/src/problems.js`, `server/migrations/008_problems.sql`)
-and their test-running pipeline (`server/src/testRunner.js`,
-`server/src/testHarness/*.js`) are additive alongside `templates` — a room
-references *either* `template_id` (quick, free-form starter code, no tests)
-*or* `problem_id` (structured task: description, per-language starters,
-reference solutions, test cases), not both. See README's "Automated tests
-for problems" for the actual execution model (server-generated per-language
-test drivers, submitted through the same Judge0 `/execute` flow, no new
-Judge0 feature surface). Read that before touching anything under
-`server/src/testHarness/` — the design deliberately avoids `additional_files`
-and runtime JSON parsing in Go/C++/Java specifically to not repeat the
-Judge0 sandbox saga below on a new corner of it.
+Problems (`server/src/problems.js`, `server/migrations/008_problems.sql` +
+`009_problems_v2.sql`) and their test-running pipeline
+(`server/src/testRunner.js`, `server/src/testHarness/*.js`) are additive
+alongside `templates` — a room references *either* `template_id` (quick,
+free-form starter code, no tests) *or* `problem_id` (structured task:
+description, per-language starters, reference solutions, real test code),
+not both.
 
-The trickiest piece if you extend this: `server/src/testHarness/cpp.js`
-materializes every test-case argument into a **named local variable**
-before calling the candidate's function, instead of passing literal values
-inline. A literal like `vector<int>{1,2,3}` is an rvalue and won't bind to
-a candidate signature taking `vector<int>&` (a common style, e.g. LeetCode's
-own C++ signatures use `&`) — only a named variable is an lvalue that can.
-Found by actually compiling generated output with `g++`, not by inspection;
-if you touch the C++ harness, recompile a real generated sample rather than
-trusting it by eye.
+**Tests are real per-language test code the problem author writes**
+(GoogleTest/unittest/JUnit/`go test`/bash asserts) — there is no JSON args/
+expected/type system anymore (that was 008's v1 design; 009 replaced it
+after the user explicitly asked for "tests as code, like GoogleTest").
+`problem_test_code` stores exactly two blobs per problem+language
+(`public_code`/`hidden_code`); "Run" submits candidate+public as one Judge0
+call, "Submit" does that plus a *second*, independent candidate+hidden
+call, merged client-side — not one combined run, specifically so a crash
+partway through doesn't leave you guessing which of the merged tests
+actually executed. See README's "Automated tests for problems" for the
+full per-language harness contract and the sandbox lessons below — read
+that (and its lessons) before touching anything under
+`server/src/testHarness/` or `judge0/Dockerfile`'s language 91/92/93 seeds.
 
-`bash`/`mariadb` have no test harness - a shell script or a single SQL
-statement doesn't fit the "candidate implements one function" model. The
-v1 type system is also deliberately flat (no nested objects/structs) and
-float/double equality is exact-match (no epsilon tolerance) - both documented
-as gaps below, not oversights to quietly fix without discussion.
+**Do not reintroduce these, they were each found by actually running
+generated output through the real Judge0/isolate stack, not by
+inspection:**
+- New vendored files/directories for the sandbox (JUnit/hamcrest jars, the
+  pre-warmed Go build cache) **must** live under `/usr/local/...`, never
+  `/opt/...` - isolate's default sandbox directory rules don't expose
+  `/opt` to the box at all, so a file that's right there on the host image
+  is simply invisible from inside a submission ("package org.junit does
+  not exist" despite the jar existing).
+- `go test`'s Judge0 language entry (id 92) needs `GOCACHE` pointed at that
+  pre-warmed, world-writable cache directory, or every single submission
+  pays the cost of compiling a large chunk of the Go standard library's
+  `testing`-adjacent dependency graph from scratch - slow enough to blow
+  both the wall time limit and (before `-p 1`) the sandbox's open-file and
+  per-process memory limits.
+- Java's harness runs `@Test` methods via plain reflection, deliberately
+  **not** `org.junit.runner.JUnitCore` - JUnit's own runner requires the
+  test class to be `public`, but javac allows only one `public` top-level
+  class per file and it must match the filename (fixed at `SigRunner.java`
+  here), so a public author-written test class can never coexist with
+  anything else in that file. The author's test class must be named
+  exactly `SigTests` and left non-public.
+- A Judge0 `NZEC`/"Runtime Error" status is *expected* whenever a real test
+  actually fails, not a sign something's broken - `RUN_ALL_TESTS()`/`go
+  test` both exit non-zero on failure by design. Never gate success/failure
+  on Judge0's own status field, only on whether the harness's structured
+  per-test output could be parsed.
+- Go's per-test isolation is *not* like Python/Java/C++: a panicking Go
+  test kills the whole process after logging the failure (deliberate
+  re-panic in `testing.tRunner`), so anything after it in the same run
+  simply never executes. `testRunner.js`'s "fewer results than expected →
+  report the rest as errored" fallback already covers this.
+
+Only `mariadb` has no test harness at all - a single SQL statement doesn't
+fit any "author writes real test code" story. Problems also have a flat
+folder structure (create/delete-if-empty, no nesting), a 1–5 star
+difficulty, and a per-interviewer like toggle - ordinary CRUD, nothing
+sandbox-related.
 
 ## Known gaps / not done
 
-- **Automated tests: no nested types, exact float equality.** The v1 param/
-  return type system (`server/src/testHarness/types.js`) is `int`, `double`,
-  `bool`, `string`, and single-level arrays of each - no nested
-  objects/structs, and `double` comparisons are exact-match (no epsilon).
-  Expand `types.js` and every `testHarness/*.js` module together if this
-  needs to grow; don't add a new type to only one language's module.
+- **Automated tests: no mariadb harness.** Tests are real per-language test
+  code (see "Interview problems and automated tests" above); mariadb has no
+  harness at all since a single SQL statement doesn't fit that model.
 - **No markdown rendering for problem descriptions.** `Room.jsx`'s Task
   panel renders `problem.description` as plain preformatted text
   (`white-space: pre-wrap`), not parsed markdown - no `react-markdown` (or
