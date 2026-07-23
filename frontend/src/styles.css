@@ -255,6 +255,8 @@ button.link.danger { color: #f28b82; }
 }
 .side-panel-header strong { margin-right: auto; }
 .side-panel-body { flex: 1; overflow-y: auto; padding: 16px; }
+.side-panel-subheading { margin: 0 0 8px; font-size: 13px; color: #8a8aa3; text-transform: uppercase; letter-spacing: 0.04em; }
+.side-panel-subheading:not(:first-child) { margin-top: 20px; }
 
 .modal-overlay {
   position: fixed;

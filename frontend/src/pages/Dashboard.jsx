@@ -15,6 +15,8 @@ export default function Dashboard() {
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(null);
   const navigate = useNavigate();
   const user = getUser();
+  const personalTemplates = templates.filter((t) => t.mine && !t.shared);
+  const sharedTemplates = templates.filter((t) => t.shared);
 
   async function loadRooms() {
     const { data } = await api.get("/rooms");
@@ -93,6 +95,15 @@ export default function Dashboard() {
     }
   }
 
+  async function toggleTemplateShared(template) {
+    try {
+      await api.patch(`/templates/${template.id}`, { shared: !template.shared });
+      await loadTemplates();
+    } catch {
+      setError("Failed to update template");
+    }
+  }
+
   async function copyLink(id) {
     try {
       await copyToClipboard(`${window.location.origin}/room/${id}`);
@@ -158,12 +169,12 @@ export default function Dashboard() {
         {rooms.length === 0 && <div className="muted">No sessions yet</div>}
       </CardGrid>
 
-      <h2>Code templates</h2>
+      <h2>Personal templates</h2>
       <p className="muted">
         Save one from inside a session ("Save as template"). Click a card to start a new session from it.
       </p>
       <CardGrid>
-        {templates.map((t) => (
+        {personalTemplates.map((t) => (
           <PreviewCard
             key={t.id}
             title={t.title}
@@ -172,10 +183,38 @@ export default function Dashboard() {
             footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
             onClick={() => createFromTemplate(t)}
             onRename={(newTitle) => renameTemplate(t.id, newTitle)}
-            actions={[{ key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) }]}
+            actions={[
+              { key: "share", label: "Share with all interviewers", onClick: () => toggleTemplateShared(t) },
+              { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
+            ]}
           />
         ))}
-        {templates.length === 0 && <div className="muted">No templates yet</div>}
+        {personalTemplates.length === 0 && <div className="muted">No personal templates yet</div>}
+      </CardGrid>
+
+      <h2>Shared templates</h2>
+      <p className="muted">The common task bank - visible to every interviewer.</p>
+      <CardGrid>
+        {sharedTemplates.map((t) => (
+          <PreviewCard
+            key={t.id}
+            title={t.title}
+            language={t.language}
+            preview={t.code}
+            footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
+            onClick={() => createFromTemplate(t)}
+            onRename={t.mine ? (newTitle) => renameTemplate(t.id, newTitle) : undefined}
+            actions={
+              t.mine
+                ? [
+                    { key: "unshare", label: "Make personal", onClick: () => toggleTemplateShared(t) },
+                    { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },
+                  ]
+                : []
+            }
+          />
+        ))}
+        {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
       </CardGrid>
     </div>
   );

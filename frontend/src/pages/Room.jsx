@@ -37,6 +37,8 @@ export default function Room() {
   const isInterviewer = Boolean(currentUser) && room?.createdBy === currentUser.id;
   const runAllowedForMe = isInterviewer || runEnabled;
   const runningOthers = participants.filter((p) => p.running && p.name !== userName);
+  const personalTemplates = templates.filter((t) => t.mine && !t.shared);
+  const sharedTemplates = templates.filter((t) => t.shared);
 
   function refreshTemplates() {
     return api
@@ -143,10 +145,11 @@ export default function Room() {
   async function saveAsTemplate() {
     const title = window.prompt("Template title:");
     if (!title?.trim()) return;
+    const shared = window.confirm("Share this template with all interviewers? Cancel keeps it personal.");
     setSavingTemplate(true);
     try {
       const code = ydoc.getText("code").toString();
-      await api.post("/templates", { title: title.trim(), language, code });
+      await api.post("/templates", { title: title.trim(), language, code, shared });
       await refreshTemplates();
     } catch {
       window.alert("Failed to save template");
@@ -285,19 +288,36 @@ export default function Room() {
             </div>
             <div className="side-panel-body">
               {leftPanel === "templates" && (
-                <CardGrid>
-                  {templates.map((t) => (
-                    <PreviewCard
-                      key={t.id}
-                      title={t.title}
-                      language={t.language}
-                      preview={t.code}
-                      footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
-                      onClick={() => insertTemplate(t)}
-                    />
-                  ))}
-                  {templates.length === 0 && <div className="muted">No templates yet</div>}
-                </CardGrid>
+                <>
+                  <h3 className="side-panel-subheading">Personal</h3>
+                  <CardGrid>
+                    {personalTemplates.map((t) => (
+                      <PreviewCard
+                        key={t.id}
+                        title={t.title}
+                        language={t.language}
+                        preview={t.code}
+                        footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
+                        onClick={() => insertTemplate(t)}
+                      />
+                    ))}
+                    {personalTemplates.length === 0 && <div className="muted">No personal templates yet</div>}
+                  </CardGrid>
+                  <h3 className="side-panel-subheading">Shared</h3>
+                  <CardGrid>
+                    {sharedTemplates.map((t) => (
+                      <PreviewCard
+                        key={t.id}
+                        title={t.title}
+                        language={t.language}
+                        preview={t.code}
+                        footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
+                        onClick={() => insertTemplate(t)}
+                      />
+                    ))}
+                    {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
+                  </CardGrid>
+                </>
               )}
               {leftPanel === "versions" && (
                 <CardGrid>

@@ -23,7 +23,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   if (templateId) {
     const { rows } = await pool.query(
-      "SELECT title, language, code FROM templates WHERE id = $1 AND created_by = $2",
+      "SELECT title, language, code FROM templates WHERE id = $1 AND (created_by = $2 OR is_shared = true)",
       [templateId, req.user.sub]
     );
     if (!rows[0]) return res.status(404).json({ error: "template not found" });
