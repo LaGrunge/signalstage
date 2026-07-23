@@ -112,8 +112,8 @@ COPY <<'SIGNALSTAGE_SEEDS' /tmp/signalstage_seeds.rb
 # the stock seed above (which just wiped and recreated everything) - see
 # README's "Ubuntu 26.04 vs. Debian buster" and "cgroup v2 хосты" sections. ---
 {
-  54 => { name: 'C++ (GCC 15, C++23)',
-          compile_cmd: '/usr/bin/g++-15 %s -std=c++23 -fdiagnostics-color=always main.cpp',
+  54 => { name: 'C++ (GCC 15, C++26)',
+          compile_cmd: '/usr/bin/g++-15 %s -std=c++26 -fdiagnostics-color=always main.cpp',
           run_cmd: './a.out' },
   71 => { name: 'Python (3.14)',
           run_cmd: '/usr/bin/python3 script.py' },

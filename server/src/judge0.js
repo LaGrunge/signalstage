@@ -7,7 +7,7 @@ import { pool, roomExists } from "./db.js";
 // definitions into db/seeds.rb itself, not upstream Judge0 CE's defaults -
 // verify against this instance's own GET /languages if you change either.
 export const LANGUAGES = [
-  { key: "cpp", label: "C++ (GCC 15, C++23)", judge0Id: 54 },
+  { key: "cpp", label: "C++ (GCC 15, C++26)", judge0Id: 54 },
   { key: "python", label: "Python (3.14)", judge0Id: 71 },
   { key: "go", label: "Go (1.26)", judge0Id: 60 },
   { key: "java", label: "Java (OpenJDK 25)", judge0Id: 62 },

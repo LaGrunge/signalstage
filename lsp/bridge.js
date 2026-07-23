@@ -15,6 +15,13 @@ const PLACEHOLDER_ROOT = "file:///workspace";
 const LANGUAGES = {
   cpp: {
     filename: "main.cpp",
+    // clangd has no --std CLI flag of its own - it infers compile flags per
+    // file, defaulting to gnu++17 with nothing else present. Judge0 compiles
+    // with GCC 15's -std=c++26 (see judge0/Dockerfile), so without this the
+    // two disagree and clangd flags perfectly valid C++26 (e.g. std::optional
+    // features) as errors. A workspace-root .clangd file is the standard way
+    // to pin extra compile flags absent a real compile_commands.json.
+    prepare: (dir) => fs.writeFileSync(path.join(dir, ".clangd"), "CompileFlags:\n  Add: [-std=c++26]\n"),
     spawn: (dir) => spawn("clangd", ["--log=error", "--pretty"], { cwd: dir }),
   },
   python: {

@@ -8,13 +8,28 @@ FROM node:20-bookworm
 # simpler to build and deploy than six separate services for a box this
 # size; revisit only if image size becomes a problem.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      clangd \
       python3 \
       python3-pip \
       shellcheck \
       curl \
+      wget \
+      gnupg \
       unzip \
       ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bookworm's own `clangd` apt package is clang/clangd 14, which predates any
+# -std=c++2c (C++26) support (that landed in Clang 17) - Judge0 compiles C++
+# with GCC 15's -std=c++26 (see judge0/Dockerfile), so clangd needs to be new
+# enough to parse the same flag or every C++ session gets spurious "unknown
+# standard" / missing-feature diagnostics. Pull clangd straight from the LLVM
+# project's own apt repo instead of waiting on Debian to backport a newer one.
+RUN wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+    && chmod +x /tmp/llvm.sh \
+    && /tmp/llvm.sh 21 \
+    && apt-get install -y --no-install-recommends clangd-21 \
+    && ln -sf /usr/bin/clangd-21 /usr/local/bin/clangd \
+    && rm -f /tmp/llvm.sh \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --break-system-packages --no-cache-dir 'python-lsp-server[all]'
