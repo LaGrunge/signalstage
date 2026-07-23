@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api, clearSession, copyToClipboard, getUser } from "../lib/api.js";
-import TemplateManager from "../components/TemplateManager.jsx";
+import { formatRelativeTime } from "../lib/time.js";
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
@@ -9,9 +9,9 @@ export default function Dashboard() {
   const [language, setLanguage] = useState("python");
   const [languages, setLanguages] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [templateId, setTemplateId] = useState("");
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState(null);
+  const [creatingFromTemplate, setCreatingFromTemplate] = useState(null);
   const navigate = useNavigate();
   const user = getUser();
 
@@ -35,16 +35,29 @@ export default function Dashboard() {
     e.preventDefault();
     setError("");
     try {
-      await api.post("/rooms", { title, language, templateId: templateId || undefined });
+      const { data } = await api.post("/rooms", { title, language });
       setTitle("");
-      setTemplateId("");
       await loadRooms();
+      navigate(`/room/${data.id}`);
     } catch {
       setError("Failed to create session");
     }
   }
 
-  async function deleteRoom(id) {
+  async function createFromTemplate(template) {
+    setError("");
+    setCreatingFromTemplate(template.id);
+    try {
+      const { data } = await api.post("/rooms", { templateId: template.id });
+      navigate(`/room/${data.id}`);
+    } catch {
+      setError("Failed to create session from template");
+      setCreatingFromTemplate(null);
+    }
+  }
+
+  async function deleteRoom(id, e) {
+    e.stopPropagation();
     try {
       await api.delete(`/rooms/${id}`);
       await loadRooms();
@@ -53,7 +66,18 @@ export default function Dashboard() {
     }
   }
 
-  async function copyLink(id) {
+  async function deleteTemplate(id, e) {
+    e.stopPropagation();
+    try {
+      await api.delete(`/templates/${id}`);
+      await loadTemplates();
+    } catch {
+      setError("Failed to delete template");
+    }
+  }
+
+  async function copyLink(id, e) {
+    e.stopPropagation();
     try {
       await copyToClipboard(`${window.location.origin}/room/${id}`);
       setCopiedId(id);
@@ -93,47 +117,61 @@ export default function Dashboard() {
             </option>
           ))}
         </select>
-        <select
-          value={templateId}
-          onChange={(e) => {
-            setTemplateId(e.target.value);
-            const t = templates.find((tpl) => tpl.id === e.target.value);
-            if (t) setLanguage(t.language);
-          }}
-        >
-          <option value="">No template</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.title} ({t.language})
-            </option>
-          ))}
-        </select>
-        <button type="submit">Create session</button>
+        <button type="submit">Create blank session</button>
       </form>
       {error && <div className="error">{error}</div>}
 
-      <TemplateManager templates={templates} languages={languages} onChange={loadTemplates} />
-
-      <ul className="room-list">
+      <h2>Sessions</h2>
+      <div className="card-grid">
         {rooms.map((r) => (
-          <li key={r.id}>
-            <div>
+          <div key={r.id} className="card" onClick={() => navigate(`/room/${r.id}`)}>
+            <div className="card-head">
               <strong>{r.title}</strong>
-              <span className="muted"> · {r.language}</span>
+              <span className="muted">{r.language}</span>
             </div>
-            <div className="room-actions">
-              <Link to={`/room/${r.id}`}>Open</Link>
-              <button className="link" onClick={() => copyLink(r.id)}>
-                {copiedId === r.id ? "Copied!" : "Copy link"}
-              </button>
-              <button className="link danger" onClick={() => deleteRoom(r.id)}>
-                Delete
-              </button>
+            <pre className="card-preview">{r.preview || " "}</pre>
+            <div className="card-footer">
+              <span className="muted">refreshed {formatRelativeTime(r.last_active_at)}</span>
+              <div className="card-actions">
+                <button className="link" onClick={(e) => copyLink(r.id, e)}>
+                  {copiedId === r.id ? "Copied!" : "Copy link"}
+                </button>
+                <button className="link danger" onClick={(e) => deleteRoom(r.id, e)}>
+                  Delete
+                </button>
+              </div>
             </div>
-          </li>
+          </div>
         ))}
-        {rooms.length === 0 && <li className="muted">No sessions yet</li>}
-      </ul>
+        {rooms.length === 0 && <div className="muted">No sessions yet</div>}
+      </div>
+
+      <h2>Code templates</h2>
+      <p className="muted">
+        Save one from inside a session ("Save as template"). Click a card to start a new session from it.
+      </p>
+      <div className="card-grid">
+        {templates.map((t) => (
+          <div key={t.id} className="card" onClick={() => createFromTemplate(t)}>
+            <div className="card-head">
+              <strong>{t.title}</strong>
+              <span className="muted">{t.language}</span>
+            </div>
+            <pre className="card-preview">{t.code || " "}</pre>
+            <div className="card-footer">
+              <span className="muted">
+                {creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
+              </span>
+              <div className="card-actions">
+                <button className="link danger" onClick={(e) => deleteTemplate(t.id, e)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {templates.length === 0 && <div className="muted">No templates yet</div>}
+      </div>
     </div>
   );
 }

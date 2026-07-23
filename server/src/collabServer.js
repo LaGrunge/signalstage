@@ -1,5 +1,7 @@
 import { Server } from "@hocuspocus/server";
-import { roomExists, getRoomInitialCode } from "./db.js";
+import { pool, roomExists, getRoomInitialCode } from "./db.js";
+
+let hocuspocusServer = null;
 
 export function startCollabServer() {
   const server = Server.configure({
@@ -27,9 +29,25 @@ export function startCollabServer() {
       }
       return document;
     },
+
+    // Hocuspocus debounces this itself (a few seconds after edits settle),
+    // so it's safe to hit Postgres here instead of on every keystroke - used
+    // to sort/label dashboard cards by actual recent activity.
+    async onStoreDocument({ documentName }) {
+      await pool.query("UPDATE rooms SET last_active_at = now() WHERE id = $1", [documentName]);
+    },
   });
 
   server.listen();
+  hocuspocusServer = server;
   console.log(`Hocuspocus collab server listening on :${process.env.COLLAB_PORT || 1234}`);
   return server;
+}
+
+// Returns the live in-memory Y.Doc for a room if Hocuspocus currently has it
+// loaded (i.e. someone has connected to it since this process started), so
+// dashboard card previews can reflect real-time content rather than only the
+// initial template snapshot. Returns undefined if never loaded/evicted.
+export function getLiveDocument(roomId) {
+  return hocuspocusServer?.documents.get(roomId);
 }

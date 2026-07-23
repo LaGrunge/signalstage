@@ -8,7 +8,7 @@ router.use(requireAuth);
 
 router.get("/", async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT id, title, language, code, created_at FROM templates WHERE created_by = $1 ORDER BY created_at DESC",
+    "SELECT id, title, language, code, created_at, updated_at FROM templates WHERE created_by = $1 ORDER BY updated_at DESC",
     [req.user.sub]
   );
   res.json(rows);
@@ -20,7 +20,7 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "title and language are required" });
   }
   const { rows } = await pool.query(
-    "INSERT INTO templates (title, language, code, created_by) VALUES ($1, $2, $3, $4) RETURNING id, title, language, code, created_at",
+    "INSERT INTO templates (title, language, code, created_by) VALUES ($1, $2, $3, $4) RETURNING id, title, language, code, created_at, updated_at",
     [title.trim(), language, code || "", req.user.sub]
   );
   res.status(201).json(rows[0]);
@@ -32,9 +32,9 @@ router.put("/:id", async (req, res) => {
     return res.status(400).json({ error: "title and language are required" });
   }
   const { rows } = await pool.query(
-    `UPDATE templates SET title = $1, language = $2, code = $3
+    `UPDATE templates SET title = $1, language = $2, code = $3, updated_at = now()
      WHERE id = $4 AND created_by = $5
-     RETURNING id, title, language, code, created_at`,
+     RETURNING id, title, language, code, created_at, updated_at`,
     [title.trim(), language, code || "", req.params.id, req.user.sub]
   );
   if (!rows[0]) return res.status(404).json({ error: "template not found" });
