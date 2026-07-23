@@ -46,7 +46,7 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header>
-        <h1>SignalStage</h1>
+        <img className="logo" src="/signalstage-logo.png" alt="SignalStage" />
         <div>
           <span className="muted">{user?.name}</span>
           <button className="link" onClick={logout}>

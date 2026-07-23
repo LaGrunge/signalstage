@@ -27,7 +27,7 @@ export default function Login() {
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={onSubmit}>
-        <h1>SignalStage</h1>
+        <img className="logo" src="/signalstage-logo.png" alt="SignalStage" />
         <p className="subtitle">Interviewer sign in</p>
         <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input

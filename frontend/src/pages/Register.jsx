@@ -28,7 +28,7 @@ export default function Register() {
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={onSubmit}>
-        <h1>SignalStage</h1>
+        <img className="logo" src="/signalstage-logo.png" alt="SignalStage" />
         <p className="subtitle">Interviewer sign up</p>
         <input type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
