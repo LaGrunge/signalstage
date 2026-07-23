@@ -54,10 +54,16 @@ router.post("/login", async (req, res) => {
   res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
 });
 
+// Deliberately not the standard `Authorization` header: nginx sits in front
+// of this app doing its own HTTP Basic Auth gate on the whole site (see
+// README "Security and production checklist"), which also lives in
+// `Authorization` - the two would stomp on each other, since a client can
+// only send one Authorization value per request.
+const TOKEN_HEADER = "x-signalstage-token";
+
 export function requireAuth(req, res, next) {
-  const header = req.headers.authorization || "";
-  const [, token] = header.split(" ");
-  if (!token) return res.status(401).json({ error: "missing bearer token" });
+  const token = req.headers[TOKEN_HEADER];
+  if (!token) return res.status(401).json({ error: "missing token" });
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
@@ -71,8 +77,7 @@ export function requireAuth(req, res, next) {
 // interviewer identity, if present, still needs to be known - unlike
 // requireAuth, a missing or invalid token is not an error here.
 export function optionalAuth(req, _res, next) {
-  const header = req.headers.authorization || "";
-  const [, token] = header.split(" ");
+  const token = req.headers[TOKEN_HEADER];
   if (token) {
     try {
       req.user = jwt.verify(token, JWT_SECRET);

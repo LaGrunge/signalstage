@@ -2,9 +2,12 @@ import axios from "axios";
 
 export const api = axios.create({ baseURL: "/api" });
 
+// Not `Authorization`: nginx's site-wide Basic Auth gate already owns that
+// header (see server/src/auth.js), and a request can only carry one value
+// for it.
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (token) config.headers["X-SignalStage-Token"] = token;
   return config;
 });
 

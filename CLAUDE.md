@@ -37,12 +37,22 @@ me hit this."
   request 502s even though `docker compose ps` shows everything "Up". Fix:
   `docker compose restart frontend` after recreating any container nginx
   proxies to. Do this reflexively, don't wait for the 502 to remind you.
-- `.env` and `judge0/judge0.conf` hold real secrets and are git-ignored — they
-  exist only on the box's disk, not in this repo. `.env.example` and
-  `judge0/judge0.conf.example` are the tracked templates; keep them in sync
-  with whatever you actually change live, or the next fresh deploy silently
-  regresses (this happened once — the rlimit/cgroup tuning below was live on
-  the box but not reflected in `judge0.conf.example` for a while).
+- `.env`, `judge0/judge0.conf`, and now `frontend/.htpasswd` hold real
+  secrets and are git-ignored — they exist only on the box's disk, not in
+  this repo. `.env.example` and `judge0/judge0.conf.example` are the tracked
+  templates; keep them in sync with whatever you actually change live, or
+  the next fresh deploy silently regresses (this happened once — the
+  rlimit/cgroup tuning below was live on the box but not reflected in
+  `judge0.conf.example` for a while). `frontend/.htpasswd` has no example
+  file (it's a password hash, not a template to fill in) — `docker compose
+  up` for `frontend` will refuse to start without it since it's bind-mounted;
+  see README "Security and production checklist" for how to generate one.
+- nginx enforces a site-wide HTTP Basic Auth gate (`frontend/nginx.conf`),
+  which forced the app's own JWT off the `Authorization` header (both would
+  otherwise collide on the same header) and onto a custom
+  `X-SignalStage-Token` header — see `server/src/auth.js` and
+  `frontend/src/lib/api.js`. Don't move it back onto `Authorization` while
+  this gate exists.
 
 ## The Judge0 sandbox saga (read before touching `judge0/`)
 

@@ -6,10 +6,16 @@
 // nothing about whether the underlying language server actually started).
 //
 // Usage: SIGNALSTAGE_URL=http://your-host npm test   (defaults to http://localhost)
+// If the deployment sits behind nginx Basic Auth (see README "Security and
+// production checklist"), also set SIGNALSTAGE_BASIC_AUTH=user:pass, or every
+// request below 401s before it ever reaches the app.
 import { WebSocket } from "ws";
 
 const HTTP = process.env.SIGNALSTAGE_URL || "http://localhost";
 const WS_BASE = HTTP.replace(/^http/, "ws");
+const BASIC_AUTH = process.env.SIGNALSTAGE_BASIC_AUTH
+  ? { Authorization: `Basic ${Buffer.from(process.env.SIGNALSTAGE_BASIC_AUTH).toString("base64")}` }
+  : {};
 
 const LANGUAGES = [
   { key: "cpp", code: '#include <iostream>\nint main(){std::cout<<"ok";return 0;}', expect: "ok" },
@@ -30,7 +36,7 @@ function report(name, ok, detail) {
 
 function checkLsp(langKey) {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`${WS_BASE}/lsp/${langKey}`);
+    const ws = new WebSocket(`${WS_BASE}/lsp/${langKey}`, { headers: BASIC_AUTH });
     // jdtls (Java) is slow to boot (OSGi framework + plugin registration) -
     // give it real headroom rather than a timeout tuned for the fast servers.
     const timeout = setTimeout(() => {
@@ -91,12 +97,12 @@ async function main() {
   const email = `system-check-${Date.now()}@test.local`;
   const registerRes = await fetch(`${HTTP}/api/auth/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...BASIC_AUTH },
     body: JSON.stringify({ email, password: "system-check-password-123", name: "System Check" }),
   });
   if (!registerRes.ok) throw new Error(`register failed: HTTP ${registerRes.status}`);
   const { token } = await registerRes.json();
-  const auth = { Authorization: `Bearer ${token}` };
+  const auth = { "X-SignalStage-Token": token, ...BASIC_AUTH };
 
   const room = await fetch(`${HTTP}/api/rooms`, {
     method: "POST",
@@ -104,7 +110,7 @@ async function main() {
     body: JSON.stringify({ title: "system-check" }),
   }).then((r) => r.json());
 
-  const languages = await fetch(`${HTTP}/api/languages`).then((r) => r.json());
+  const languages = await fetch(`${HTTP}/api/languages`, { headers: BASIC_AUTH }).then((r) => r.json());
   const exposedKeys = new Set(languages.map((l) => l.key));
   for (const lang of LANGUAGES) {
     report(`GET /api/languages exposes "${lang.key}"`, exposedKeys.has(lang.key));
@@ -113,7 +119,7 @@ async function main() {
   for (const lang of LANGUAGES) {
     const res = await fetch(`${HTTP}/api/execute`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...BASIC_AUTH },
       body: JSON.stringify({ roomId: room.id, language: lang.key, code: lang.code, stdin: "" }),
     }).then((r) => r.json());
     const ok = res.status?.description === "Accepted" && (res.stdout || "").includes(lang.expect);

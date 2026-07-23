@@ -60,6 +60,12 @@ frontend (nginx, static React build)
 cp .env.example .env         # fill in real secrets
 vim .env
 
+# nginx Basic Auth gate for the whole site - required, docker compose won't
+# start frontend without this file present (see "Security and production
+# checklist" below for why this exists and how it interacts with app auth)
+htpasswd -c frontend/.htpasswd yourusername   # from apache2-utils; or:
+# docker run --rm httpd:2.4-alpine htpasswd -Bbn yourusername yourpassword > frontend/.htpasswd
+
 # 1. Bring up the main stack (creates the signalstage_net network)
 docker compose up -d --build
 
@@ -322,6 +328,21 @@ on it in a real interview.
 
 ## Security and production checklist
 
+- **nginx enforces HTTP Basic Auth on the whole site** (`frontend/nginx.conf`)
+  — a single shared gate for anyone reaching this host at all, independent of
+  the app's own per-interviewer login and per-room candidate link. Both
+  interviewer and candidate need the shared Basic Auth credentials *and*
+  their normal room link/login to get in. The credential file
+  (`frontend/.htpasswd`) is git-ignored and lives only on the deploy host,
+  like `.env` — generate it with `htpasswd -c frontend/.htpasswd <user>` (or
+  the Docker one-liner in "Quick start") before `docker compose up`, since
+  the compose file bind-mounts it and refuses to start without it.
+  Because Basic Auth uses the `Authorization` header, and the app's own JWT
+  used to as well, the app was switched to a dedicated `X-SignalStage-Token`
+  header (`server/src/auth.js`, `frontend/src/lib/api.js`) so the two don't
+  collide — don't move the JWT back onto `Authorization` without removing
+  this gate first. If you script against a Basic-Auth-gated deployment (e.g.
+  `tests/system-check.mjs`), pass `SIGNALSTAGE_BASIC_AUTH=user:pass`.
 - **Judge0 runs `privileged: true`** — required for the `isolate` sandbox.
   Keep Judge0 on its own isolated network/host and don't expose `2358`
   publicly (`judge0/docker-compose.yml` binds it to `127.0.0.1` already, but

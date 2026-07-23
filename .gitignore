@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 judge0/judge0.conf
+frontend/.htpasswd
 .claude/
 
 npm-debug.log*
