@@ -1,6 +1,7 @@
 import { Router } from "express";
 import axios from "axios";
-import { pool, roomExists } from "./db.js";
+import { pool } from "./db.js";
+import { optionalAuth } from "./auth.js";
 
 // judge0/Dockerfile builds this deployment's own Judge0 image (Ubuntu 26.04,
 // not upstream's Debian-buster judge0/compilers) and bakes these language
@@ -45,12 +46,24 @@ router.get("/languages", (_req, res) => {
   res.json(LANGUAGES.map(({ key, label }) => ({ key, label })));
 });
 
-router.post("/execute", async (req, res) => {
+router.post("/execute", optionalAuth, async (req, res) => {
   const { roomId, language, code, stdin, submittedBy } = req.body || {};
   const lang = LANGUAGE_BY_KEY[language];
 
-  if (!roomId || !(await roomExists(roomId))) {
+  const { rows: roomRows } = await pool.query(
+    "SELECT created_by, run_enabled FROM rooms WHERE id = $1 AND active = true",
+    [roomId || null]
+  );
+  const room = roomRows[0];
+  if (!room) {
     return res.status(404).json({ error: "room not found" });
+  }
+  // The "Disable candidate run" toggle only needs to bind non-owners - the
+  // interviewer who owns this room can always run, same as before the
+  // toggle existed.
+  const isOwner = req.user?.sub === room.created_by;
+  if (!isOwner && !room.run_enabled) {
+    return res.status(403).json({ error: "run disabled by interviewer" });
   }
   if (!lang) {
     return res.status(400).json({ error: `unsupported language: ${language}` });

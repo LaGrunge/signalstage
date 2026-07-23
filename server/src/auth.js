@@ -66,3 +66,19 @@ export function requireAuth(req, res, next) {
     res.status(401).json({ error: "invalid or expired token" });
   }
 }
+
+// For routes candidates hit anonymously (e.g. /execute) but where an
+// interviewer identity, if present, still needs to be known - unlike
+// requireAuth, a missing or invalid token is not an error here.
+export function optionalAuth(req, _res, next) {
+  const header = req.headers.authorization || "";
+  const [, token] = header.split(" ");
+  if (token) {
+    try {
+      req.user = jwt.verify(token, JWT_SECRET);
+    } catch {
+      // ignore - treated as anonymous
+    }
+  }
+  next();
+}

@@ -55,12 +55,30 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.patch("/:id", requireAuth, async (req, res) => {
-  const { title } = req.body || {};
-  if (!title?.trim()) return res.status(400).json({ error: "title is required" });
+  const { title, runEnabled } = req.body || {};
+  if (title === undefined && runEnabled === undefined) {
+    return res.status(400).json({ error: "nothing to update" });
+  }
+  if (title !== undefined && !title?.trim()) {
+    return res.status(400).json({ error: "title is required" });
+  }
+
+  const sets = [];
+  const values = [];
+  if (title !== undefined) {
+    values.push(title.trim());
+    sets.push(`title = $${values.length}`);
+  }
+  if (runEnabled !== undefined) {
+    values.push(Boolean(runEnabled));
+    sets.push(`run_enabled = $${values.length}`);
+  }
+  values.push(req.params.id, req.user.sub);
+
   const { rows } = await pool.query(
-    `UPDATE rooms SET title = $1 WHERE id = $2 AND created_by = $3
-     RETURNING id, title, language, active, created_at, last_active_at`,
-    [title.trim(), req.params.id, req.user.sub]
+    `UPDATE rooms SET ${sets.join(", ")} WHERE id = $${values.length - 1} AND created_by = $${values.length}
+     RETURNING id, title, language, active, created_at, last_active_at, run_enabled AS "runEnabled"`,
+    values
   );
   if (!rows[0]) return res.status(404).json({ error: "room not found" });
   res.json(rows[0]);
@@ -68,10 +86,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
 // Intentionally public: the room id itself (a UUIDv4) is the shared secret in
 // the interview link, matching how most self-hosted "join by link" interview
-// tools work. Candidates never need an account.
+// tools work. Candidates never need an account. created_by is just a UUID
+// (no PII) - the frontend uses it to tell a real room owner apart from any
+// other logged-in account that happens to open this link.
 router.get("/:id", async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT id, title, language, active FROM rooms WHERE id = $1",
+    `SELECT id, title, language, active, created_by AS "createdBy", run_enabled AS "runEnabled"
+     FROM rooms WHERE id = $1`,
     [req.params.id]
   );
   if (!rows[0] || !rows[0].active) return res.status(404).json({ error: "room not found" });

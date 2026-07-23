@@ -30,9 +30,11 @@ export default function Room() {
   const [runEnabled, setRunEnabled] = useState(true);
 
   // Templates/versions/the run-permission toggle are the interviewer's own
-  // tools - a candidate who joined via the link without logging in just
-  // won't see any of these controls.
-  const isInterviewer = Boolean(getUser());
+  // tools - gated on actually owning *this* room (created_by), not just on
+  // being logged into some account, so a candidate link forwarded to another
+  // interviewer's account doesn't render as if they created it.
+  const currentUser = getUser();
+  const isInterviewer = Boolean(currentUser) && room?.createdBy === currentUser.id;
   const runAllowedForMe = isInterviewer || runEnabled;
   const runningOthers = participants.filter((p) => p.running && p.name !== userName);
 
@@ -56,6 +58,9 @@ export default function Room() {
       .then(({ data }) => {
         setRoom(data);
         setLanguage(data.language);
+        setRunEnabled(data.runEnabled ?? true);
+        const loggedInUser = getUser();
+        if (loggedInUser && loggedInUser.id === data.createdBy) refreshTemplates();
       })
       .catch(() => setNotFound(true));
     api.get("/languages").then(({ data }) => setLanguages(data));
@@ -65,7 +70,6 @@ export default function Room() {
       setUserName(loggedInUser.name);
       sessionStorage.setItem("displayName", loggedInUser.name);
     }
-    if (loggedInUser) refreshTemplates();
   }, [roomId]);
 
   const ydoc = useMemo(() => new Y.Doc(), [roomId]);
@@ -116,8 +120,13 @@ export default function Room() {
     setLanguage(lang);
   }
 
-  function toggleRunEnabled() {
-    ydoc.getMap("config").set("runEnabled", !runEnabled);
+  async function toggleRunEnabled() {
+    try {
+      const { data } = await api.patch(`/rooms/${roomId}`, { runEnabled: !runEnabled });
+      ydoc.getMap("config").set("runEnabled", data.runEnabled);
+    } catch {
+      window.alert("Failed to update run permission");
+    }
   }
 
   function insertTemplate(template) {
