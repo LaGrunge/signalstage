@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
+import Ansi from "ansi-to-react";
 import CollabEditor from "../components/CollabEditor.jsx";
 import { api, collabUrl, getUser } from "../lib/api.js";
 
@@ -159,15 +160,31 @@ export default function Room() {
           </div>
           <div className="io-block output">
             <label>Output</label>
-            {output?.error && <pre className="error">{output.error}</pre>}
+            {output?.error && (
+              <pre className="error">
+                <Ansi>{output.error}</Ansi>
+              </pre>
+            )}
             {output && !output.error && (
               <>
                 <div className="muted">
                   {output.status?.description} · {output.time ?? "?"}s · {output.memory ?? "?"}KB
                 </div>
-                {output.compileOutput && <pre className="compile">{output.compileOutput}</pre>}
-                {output.stdout && <pre>{output.stdout}</pre>}
-                {output.stderr && <pre className="stderr">{output.stderr}</pre>}
+                {output.compileOutput && (
+                  <pre className="compile">
+                    <Ansi>{output.compileOutput}</Ansi>
+                  </pre>
+                )}
+                {output.stdout && (
+                  <pre>
+                    <Ansi>{output.stdout}</Ansi>
+                  </pre>
+                )}
+                {output.stderr && (
+                  <pre className="stderr">
+                    <Ansi>{output.stderr}</Ansi>
+                  </pre>
+                )}
               </>
             )}
             {!output && <div className="muted">Click "Run" to see the output</div>}
