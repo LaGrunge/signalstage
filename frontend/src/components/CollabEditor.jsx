@@ -67,7 +67,7 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
         const color = isSafeCssColor(state.user.color) ? state.user.color : "#888888";
         const name = escapeCssString(state.user.name || "Anonymous");
         rules.push(`
-          .yRemoteSelection-${clientID} { background-color: ${color}55; }
+          .yRemoteSelection-${clientID} { background-color: color-mix(in srgb, ${color} 33%, transparent); }
           .yRemoteSelectionHead-${clientID} {
             position: relative;
             border-left: 2px solid ${color};
