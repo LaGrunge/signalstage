@@ -10,8 +10,9 @@ browser
   │
   ▼
 frontend (nginx, static React build)
-  ├── /api/*     → api (Express, :4000)      — auth, rooms, /execute proxy
-  └── /collab/*  → api (Hocuspocus, :1234)    — Yjs websocket sync
+  ├── /api/*   → api (Express, :4000)      — auth, rooms, /execute proxy
+  ├── /collab  → api (Hocuspocus, :1234)    — Yjs websocket sync
+  └── /lsp/*   → lsp (:3001)                — LSP websocket bridge
                        │
                        ▼
                  postgres (users, rooms)
@@ -32,6 +33,8 @@ frontend (nginx, static React build)
 - Выполнение кода — отдельный self-hosted стек Judge0 (`judge0/`), вендоренный
   из официального репозитория. `api` дергает его REST API синхронно
   (`wait=true`) и возвращает stdout/stderr/compile_output.
+- IDE-фичи редактора (диагностика, автодополнение, hover) — отдельный сервис
+  `lsp/`, см. раздел «LSP» ниже.
 
 ## Быстрый старт
 
@@ -129,6 +132,80 @@ npm run dev            # http://localhost:5173, проксирует /api и /co
 ID могут отличаться в зависимости от версии образа Judge0 — проверьте
 `GET http://<judge0-host>:2358/languages` на вашем инстансе и поправьте id при
 необходимости.
+
+## LSP (диагностика, автодополнение, hover в редакторе)
+
+`lsp/` — отдельный сервис на Node, дающий Monaco настоящие IDE-фичи (не
+word-based автодополнение, а символьное, от реальных языковых серверов):
+
+- **C++** — `clangd` (Debian bookworm, apt)
+- **Python** — `pylsp` / python-lsp-server (pip)
+- **Go** — `gopls` (официальный тулчейн Go, ставится напрямую с go.dev — apt
+  `golang-go` в bookworm слишком старый, его go.mod parser не понимает
+  go.mod самого gopls)
+- **Java** — `jdtls` (Eclipse JDT Language Server). `download.eclipse.org`
+  больше не отдаёт `jdtls-*.tar.gz` напрямую (стандартный URL — 404, мирror-
+  редирект отдаёт HTML-страницу выбора, GitHub-релизов у проекта нет) —
+  вместо этого достаём `server/` (jar-плагины + `config_linux` + equinox
+  launcher) прямо из `.vsix` расширения VS Code "Language Support for Java"
+  через open-vsx.org (это просто versioned zip). Имя jar'а лаунчера
+  версионировано, `lsp/bridge.js` находит его глобом в рантайме, а не хардкодит.
+
+Все четыре сервера — в одном образе (`lsp/Dockerfile`), путь выбирается
+бриджем (`lsp/bridge.js`) по URL: `/lsp/cpp`, `/lsp/python`, `/lsp/go`,
+`/lsp/java`. На каждое websocket-подключение бридж поднимает **свежий**
+процесс языкового сервера в одноразовой временной рабочей директории и
+убивает его при разрыве соединения — состояние одного кандидата никогда не
+протекает в сессию другого.
+
+**Архитектурное решение:** сознательно не стали тянуть
+`monaco-languageclient` + `@codingame/monaco-vscode-api` — этот стек
+переизобретает изрядную часть VS Code workbench (сервисы, extension host)
+ради того, чтобы дать Monaco «настоящий» LSP-клиент, и тянет за собой
+быстро меняющийся, жёстко версionированный граф зависимостей. Для того что
+реально нужно — диагностика, автодополнение, hover на обычном `<Editor>` —
+этого много. Вместо этого во фронтенде (`frontend/src/lib/lspClient.js`) —
+компактный рукописный LSP-клиент поверх обычного WebSocket, напрямую
+подключённый к нативным API Monaco (`registerCompletionItemProvider`,
+`registerHoverProvider`, `editor.setModelMarkers`).
+
+Браузер никогда не узнаёт реальный путь временной директории на сервере — и
+клиент, и сервер работают с фиксированным плейсхолдером `file:///workspace/…`,
+а бридж переписывает `file://` URI (и голые пути в текстах диагностических
+сообщений вроде gopls-ового «no active builds contain /tmp/...») в обе
+стороны на лету.
+
+**Известные ограничения на односрочном файле без реального проекта:**
+- **Go**: `gopls` иногда пишет info-диагностику вида «No active builds
+  contain main.go» — ожидаемо для одиночного файла с синтетическим
+  `go.mod` без полноценного модуля; completion/hover при этом работают.
+- **Java**: `jdtls` явно помечает файл как «non-project file, only syntax
+  errors are reported» — это его штатный режим для standalone-файлов без
+  Maven/Gradle-проекта, семантические ошибки (несуществующие символы и
+  т.п.) не проверяются, только синтаксис.
+
+**Ресурсы:** сервис `lsp` ограничен `mem_limit: 3g` в `docker-compose.yml` —
+на этой 4 vCPU / 16GB машине (плюс весь остальной стек и Judge0) это
+комфортный запас для нескольких одновременных интервью; тяжелее всего
+`jdtls` (у него отдельно выставлен `-Xmx768m`). Поднимайте лимит, если
+ожидаете больше параллельных сессий.
+
+**Пересборка после изменений:**
+```bash
+cd /opt/signalstage
+git pull
+docker compose up -d --build lsp        # если менялся только lsp/
+docker compose up -d --build lsp frontend  # если менялся и клиент
+```
+
+**Что проверено, а что нет:** end-to-end проверен на уровне протокола —
+`initialize`-хендшейк и полный цикл `didOpen` (заведомо невалидный код) →
+`publishDiagnostics` с корректно переписанными URI для всех четырёх языков,
+как напрямую к `lsp`-контейнеру, так и через публичный nginx-путь `/lsp/*`.
+Реальная проверка в браузере (открыть комнату, ввести код с ошибкой и
+увидеть подчёркивание, начать печатать известный символ и увидеть
+автодополнение) руками не делалась — стоит сделать перед тем, как полагаться
+на это на настоящем интервью.
 
 ## Безопасность и продакшн-чеклист
 
