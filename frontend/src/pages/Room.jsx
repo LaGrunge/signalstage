@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import Ansi from "ansi-to-react";
@@ -11,6 +11,7 @@ import { highlightCode } from "../lib/highlight.js";
 
 export default function Room() {
   const { id: roomId } = useParams();
+  const navigate = useNavigate();
   const [room, setRoom] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [userName, setUserName] = useState(() => sessionStorage.getItem("displayName") || "");
@@ -240,6 +241,13 @@ export default function Room() {
   return (
     <div className="room">
       <header className="room-header">
+        <img
+          className="logo room-logo"
+          src="/signalstage-logo.png"
+          alt="SignalStage"
+          onClick={isInterviewer ? () => navigate("/dashboard") : undefined}
+          style={{ cursor: isInterviewer ? "pointer" : "default" }}
+        />
         <div>
           <strong>{room.title}</strong>
           <span className={`status ${connected ? "online" : "offline"}`}>

@@ -186,6 +186,7 @@ button.link.danger { color: #f28b82; }
   border-bottom: 1px solid #33334a;
 }
 .room-header strong { margin-right: 8px; }
+.room-logo { height: 32px; width: 32px; object-fit: contain; border-radius: 8px; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
 .status.online { background: #1e3a2a; color: #6fcf97; }
 .status.offline { background: #3a2a1e; color: #f2c94c; }
