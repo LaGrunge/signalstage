@@ -7,7 +7,8 @@ x-logging:
 
 services:
   server:
-    image: judge0/judge0:latest
+    build: .
+    image: signalstage-judge0:latest
     volumes:
       - ./judge0.conf:/judge0.conf:ro
     ports:
@@ -22,21 +23,19 @@ services:
           - judge0-server
 
   worker:
-    image: judge0/judge0:latest
+    build: .
+    image: signalstage-judge0:latest
     command: ["./scripts/workers"]
     volumes:
       - ./judge0.conf:/judge0.conf:ro
     privileged: true
-    # Pin to a subset of CPUs: JVM/Go both size default thread pools (GC, JIT,
-    # GOMAXPROCS) off the visible CPU count. Left unpinned on a many-core host
-    # they spin up far more threads than MAX_PROCESSES_AND_OR_THREADS allows,
-    # failing on pthread_create (EAGAIN) before user code even runs. cpuset
-    # (not just a cpu quota) is what makes sched_getaffinity/
-    # availableProcessors() actually report a small number. On a small
-    # dedicated host (e.g. a 4-vCPU instance), also leave a couple of cores
-    # free for postgres/api/frontend/judge0 server-db-redis rather than
-    # claiming every core for the worker. Adjust the range to your instance
-    # size - e.g. "0-3" on an 8+ vCPU box.
+    # Pin to a subset of CPUs: JVM's default GC/JIT thread-pool sizing and
+    # Go's GOMAXPROCS are both based on visible CPU count. Left unpinned on a
+    # many-core host they size themselves off way more cores than they'll
+    # actually get. On a small dedicated host (e.g. a 4-vCPU instance), also
+    # leave a couple of cores free for postgres/api/frontend/judge0
+    # server-db-redis rather than claiming every core for the worker. Adjust
+    # the range to your instance size - e.g. "0-3" on an 8+ vCPU box.
     cpuset: "2-3"
     <<: *default-logging
     restart: always

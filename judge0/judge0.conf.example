@@ -279,16 +279,18 @@ MAX_WALL_TIME_LIMIT=
 
 # Limit address space of the program in kilobytes.
 # Default: 128000
-# Bumped: without cgroups (see ENABLE_PER_PROCESS_AND_THREAD_* above) this is
-# enforced as a per-process RLIMIT_AS, i.e. reserved virtual address space -
-# not actual RSS. JVM heap reservation and the Go runtime's arena reservations
-# blow through 128MB on startup alone even for "hello world". 1.5GB covers
-# JVM/Go/C++/Python comfortably; this host has 92GB RAM.
-MEMORY_LIMIT=1572864
+# Modest bump for interview-submission headroom (arrays/loops that legitimately
+# use a bit more than 128MB) - not a workaround for anything. isolate 2.6 (see
+# judge0/Dockerfile - this image is rebuilt on Ubuntu 26.04 specifically so we
+# can run a cgroup-v2-native isolate) enforces this via real cgroup memory
+# accounting again, and modern JVMs/Go runtimes size their own ergonomics off
+# the cgroup limit rather than blowing past it, so this no longer needs to be
+# anywhere near as large as it did under the old rlimit-only workaround.
+MEMORY_LIMIT=262144
 
 # Maximum custom MEMORY_LIMIT.
 # Default: 512000
-MAX_MEMORY_LIMIT=4194304
+MAX_MEMORY_LIMIT=1048576
 
 # Limit process stack in kilobytes.
 # Default: 64000
@@ -300,28 +302,22 @@ MAX_STACK_LIMIT=
 
 # Maximum number of processes and/or threads program can create.
 # Default: 60
-# Bumped: JVM (GC/JIT/compiler threads) and `go build` (GOMAXPROCS worker
-# threads = nproc, 36 on this host) both exceed 60 threads before user code
-# even runs, hitting EAGAIN on pthread_create. This only matters because we
-# disabled cgroups above - it's a real per-process rlimit now, not shared
-# across a whole process tree via cgroup accounting.
-MAX_PROCESSES_AND_OR_THREADS=200
+MAX_PROCESSES_AND_OR_THREADS=
 
 # Maximum custom MAX_PROCESSES_AND_OR_THREADS.
 # Default: 120
-MAX_MAX_PROCESSES_AND_OR_THREADS=500
+MAX_MAX_PROCESSES_AND_OR_THREADS=
 
 # If true then CPU_TIME_LIMIT will be used as per process and thread.
 # Default: false, i.e. CPU_TIME_LIMIT is set as a total limit for all processes and threads.
-# Set to true: this host runs a cgroup v2-only kernel and isolate 1.8.1 (bundled
-# in this image) only knows how to enforce group limits via legacy cgroup v1
-# (--cg), which doesn't exist here. Setting both PER_PROCESS_AND_THREAD flags
-# to true makes isolate_job.rb skip --cg entirely and fall back to rlimit-based
-# limits, which work fine on cgroup v2. Trade-off: limits apply per
-# process/thread instead of to the whole process tree, so a submission that
-# forks could use more aggregate memory/CPU than MEMORY_LIMIT/CPU_TIME_LIMIT
-# nominally allow - MAX_PROCESSES_AND_OR_THREADS still bounds fork bombs.
-ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=true
+# Left at default (false): isolate 2.6's --cg mode requires and properly uses
+# cgroup v2 (see judge0/Dockerfile), so submissions are limited by real cgroup
+# accounting across their whole process tree again, same as upstream Judge0
+# intends. The previous rlimit-only workaround this deployment carried (see
+# README's now-historical "cgroup v2 хосты" section) was needed only because
+# isolate 1.8.1 (bundled in the old judge0/judge0:latest image) could not
+# drive cgroup v2 at all.
+ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=
 
 # If false, user won't be able to set ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT.
 # Default: true
@@ -329,9 +325,7 @@ ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=
 
 # If true then MEMORY_LIMIT will be used as per process and thread.
 # Default: false, i.e. MEMORY_LIMIT is set as a total limit for all processes and threads.
-# See note above on ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT - both must be true
-# together to avoid isolate's --cg (cgroup v1) mode on this host.
-ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=true
+ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=
 
 # If false, user won't be able to set ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT.
 # Default: true
