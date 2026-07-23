@@ -26,10 +26,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # enough to parse the same flag or every C++ session gets spurious "unknown
 # standard" / missing-feature diagnostics. Pull clangd straight from the LLVM
 # project's own apt repo instead of waiting on Debian to backport a newer one.
+#
+# clangd alone isn't enough, though: it still needs an actual C++ standard
+# library to resolve #include<...> against, and the only one bookworm pulls
+# in as clangd's own dependency is libstdc++-12-dev (GCC 12, from 2022) -
+# missing <print>, <expected>, and other C++23/26 library additions entirely,
+# so headers "not found" even once the -std flag itself is accepted. Installing
+# a matching GCC 15 here (to mirror Judge0's toolchain) isn't an option -
+# bookworm's own apt has nothing past gcc-12, and there's no Debian-bookworm
+# gcc-15 backport - so instead point clangd at LLVM's own libc++ from the same
+# apt.llvm.org repo, which tracks recent C++ standard features on its own
+# release cadence independent of any system GCC.
 RUN wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
     && chmod +x /tmp/llvm.sh \
     && /tmp/llvm.sh 22 \
-    && apt-get install -y --no-install-recommends clangd-22 \
+    && apt-get install -y --no-install-recommends clangd-22 libc++-22-dev libc++abi-22-dev \
     && ln -sf /usr/bin/clangd-22 /usr/local/bin/clangd \
     && rm -f /tmp/llvm.sh \
     && rm -rf /var/lib/apt/lists/*
