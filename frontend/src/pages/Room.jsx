@@ -246,7 +246,7 @@ export default function Room() {
       <header className="room-header">
         <img
           className="logo room-logo"
-          src="/signalstage-logo.png"
+          src="/SignalStageNoTitle.png"
           alt="SignalStage"
           onClick={isInterviewer ? () => navigate("/dashboard") : undefined}
           style={{ cursor: isInterviewer ? "pointer" : "default" }}
