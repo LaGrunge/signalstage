@@ -19,6 +19,8 @@ export default function Room() {
   const [running, setRunning] = useState(false);
   const [connected, setConnected] = useState(false);
   const [participants, setParticipants] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [templateToInsert, setTemplateToInsert] = useState("");
 
   useEffect(() => {
     api
@@ -34,6 +36,11 @@ export default function Room() {
     if (loggedInUser && !sessionStorage.getItem("displayName")) {
       setUserName(loggedInUser.name);
       sessionStorage.setItem("displayName", loggedInUser.name);
+    }
+    // Templates are the interviewer's private library - candidates joining
+    // without a login just won't see the insert-template control.
+    if (loggedInUser) {
+      api.get("/templates").then(({ data }) => setTemplates(data)).catch(() => {});
     }
   }, [roomId]);
 
@@ -82,6 +89,18 @@ export default function Room() {
   function changeLanguage(lang) {
     ydoc.getMap("config").set("language", lang);
     setLanguage(lang);
+  }
+
+  function insertTemplate() {
+    const template = templates.find((t) => t.id === templateToInsert);
+    if (!template) return;
+    if (!window.confirm(`Replace the current code with "${template.title}"?`)) return;
+    const ytext = ydoc.getText("code");
+    ydoc.transact(() => {
+      ytext.delete(0, ytext.length);
+      ytext.insert(0, template.code);
+    });
+    if (template.language !== language) changeLanguage(template.language);
   }
 
   async function runCode() {
@@ -137,6 +156,21 @@ export default function Room() {
             </span>
           ))}
         </div>
+        {templates.length > 0 && (
+          <>
+            <select value={templateToInsert} onChange={(e) => setTemplateToInsert(e.target.value)}>
+              <option value="">Insert template…</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title} ({t.language})
+                </option>
+              ))}
+            </select>
+            <button className="link" onClick={insertTemplate} disabled={!templateToInsert}>
+              Insert
+            </button>
+          </>
+        )}
         <select value={language} onChange={(e) => changeLanguage(e.target.value)}>
           {languages.map((l) => (
             <option key={l.key} value={l.key}>

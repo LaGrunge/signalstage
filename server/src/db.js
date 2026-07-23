@@ -40,3 +40,8 @@ export async function roomExists(roomId) {
   const { rows } = await pool.query("SELECT 1 FROM rooms WHERE id = $1 AND active = true", [roomId]);
   return rows.length > 0;
 }
+
+export async function getRoomInitialCode(roomId) {
+  const { rows } = await pool.query("SELECT initial_code FROM rooms WHERE id = $1", [roomId]);
+  return rows[0]?.initial_code || null;
+}

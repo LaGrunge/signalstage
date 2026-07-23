@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, clearSession, copyToClipboard, getUser } from "../lib/api.js";
+import TemplateManager from "../components/TemplateManager.jsx";
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState("python");
   const [languages, setLanguages] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [templateId, setTemplateId] = useState("");
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState(null);
   const navigate = useNavigate();
@@ -17,17 +20,24 @@ export default function Dashboard() {
     setRooms(data);
   }
 
+  async function loadTemplates() {
+    const { data } = await api.get("/templates");
+    setTemplates(data);
+  }
+
   useEffect(() => {
     api.get("/languages").then(({ data }) => setLanguages(data));
     loadRooms().catch(() => setError("Failed to load sessions"));
+    loadTemplates().catch(() => setError("Failed to load templates"));
   }, []);
 
   async function createRoom(e) {
     e.preventDefault();
     setError("");
     try {
-      await api.post("/rooms", { title, language });
+      await api.post("/rooms", { title, language, templateId: templateId || undefined });
       setTitle("");
+      setTemplateId("");
       await loadRooms();
     } catch {
       setError("Failed to create session");
@@ -83,9 +93,26 @@ export default function Dashboard() {
             </option>
           ))}
         </select>
+        <select
+          value={templateId}
+          onChange={(e) => {
+            setTemplateId(e.target.value);
+            const t = templates.find((tpl) => tpl.id === e.target.value);
+            if (t) setLanguage(t.language);
+          }}
+        >
+          <option value="">No template</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title} ({t.language})
+            </option>
+          ))}
+        </select>
         <button type="submit">Create session</button>
       </form>
       {error && <div className="error">{error}</div>}
+
+      <TemplateManager templates={templates} languages={languages} onChange={loadTemplates} />
 
       <ul className="room-list">
         {rooms.map((r) => (

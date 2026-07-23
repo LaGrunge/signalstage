@@ -8,11 +8,23 @@ export const router = Router();
 const LANGUAGE_KEYS = new Set(LANGUAGES.map((l) => l.key));
 
 router.post("/", requireAuth, async (req, res) => {
-  const { title, language } = req.body || {};
-  const lang = LANGUAGE_KEYS.has(language) ? language : "python";
+  const { title, language, templateId } = req.body || {};
+  let lang = LANGUAGE_KEYS.has(language) ? language : "python";
+  let initialCode = null;
+
+  if (templateId) {
+    const { rows } = await pool.query(
+      "SELECT language, code FROM templates WHERE id = $1 AND created_by = $2",
+      [templateId, req.user.sub]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "template not found" });
+    lang = rows[0].language;
+    initialCode = rows[0].code;
+  }
+
   const { rows } = await pool.query(
-    "INSERT INTO rooms (title, language, created_by) VALUES ($1, $2, $3) RETURNING id, title, language, created_at",
-    [title?.trim() || "Interview session", lang, req.user.sub]
+    "INSERT INTO rooms (title, language, created_by, initial_code) VALUES ($1, $2, $3, $4) RETURNING id, title, language, created_at",
+    [title?.trim() || "Interview session", lang, req.user.sub, initialCode]
   );
   res.status(201).json(rows[0]);
 });
