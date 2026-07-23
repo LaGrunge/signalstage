@@ -1,21 +1,21 @@
 import { Router } from "express";
 import axios from "axios";
-import { roomExists } from "./db.js";
+import { pool, roomExists } from "./db.js";
 
 // judge0/Dockerfile builds this deployment's own Judge0 image (Ubuntu 26.04,
-// not upstream's Debian-buster judge0/compilers), so these ids/versions are
-// specific to judge0/fixups.sql, not upstream Judge0 CE's defaults - verify
-// against this instance's own GET /languages if you change either.
+// not upstream's Debian-buster judge0/compilers) and bakes these language
+// definitions into db/seeds.rb itself, not upstream Judge0 CE's defaults -
+// verify against this instance's own GET /languages if you change either.
 export const LANGUAGES = [
   { key: "cpp", label: "C++ (GCC 15, C++23)", judge0Id: 54 },
   { key: "python", label: "Python (3.14)", judge0Id: 71 },
   { key: "go", label: "Go (1.26)", judge0Id: 60 },
   { key: "java", label: "Java (OpenJDK 25)", judge0Id: 62 },
   { key: "bash", label: "Bash (5.3)", judge0Id: 46 },
-  // mariadbd needs ~1-2s to initialize + start inside the sandbox on top of
-  // actual query time - give it more wall-clock room than the other
-  // languages (default 10s) rather than raising it globally in judge0.conf.
-  { key: "mariadb", label: "MariaDB (11.8)", judge0Id: 90, wallTimeLimit: 15 },
+  // mariadb-install-db + mariadbd startup inside the sandbox needs several
+  // seconds on top of actual query time - give it more wall-clock room than
+  // the other languages (default 10s, judge0.conf's MAX_WALL_TIME_LIMIT=30).
+  { key: "mariadb", label: "MariaDB (11.8)", judge0Id: 90, wallTimeLimit: 25 },
 ];
 
 const LANGUAGE_BY_KEY = Object.fromEntries(LANGUAGES.map((l) => [l.key, l]));
@@ -38,7 +38,7 @@ router.get("/languages", (_req, res) => {
 });
 
 router.post("/execute", async (req, res) => {
-  const { roomId, language, code, stdin } = req.body || {};
+  const { roomId, language, code, stdin, submittedBy } = req.body || {};
   const lang = LANGUAGE_BY_KEY[language];
 
   if (!roomId || !(await roomExists(roomId))) {
@@ -59,7 +59,7 @@ router.post("/execute", async (req, res) => {
       ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
     }, { params: { base64_encoded: "true", wait: "true" } });
 
-    res.json({
+    const result = {
       status: data.status,
       stdout: unb64(data.stdout),
       stderr: unb64(data.stderr),
@@ -67,7 +67,28 @@ router.post("/execute", async (req, res) => {
       message: unb64(data.message),
       time: data.time,
       memory: data.memory,
-    });
+    };
+
+    // Every attempt, not just successful ones - the version history panel is
+    // most useful for showing an interviewer exactly what a candidate tried
+    // right before it failed.
+    await pool.query(
+      `INSERT INTO submissions (room_id, language, code, stdin, status, stdout, stderr, compile_output, submitted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        roomId,
+        language,
+        code,
+        stdin || "",
+        result.status?.description || null,
+        result.stdout,
+        result.stderr,
+        result.compileOutput,
+        submittedBy || "Anonymous",
+      ]
+    );
+
+    res.json(result);
   } catch (err) {
     console.error("judge0 execute failed:", err.response?.data || err.message);
     res.status(502).json({ error: "code execution backend unavailable" });

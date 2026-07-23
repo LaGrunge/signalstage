@@ -66,6 +66,23 @@ router.get("/:id", async (req, res) => {
   res.json(rows[0]);
 });
 
+// Interviewer-only, same as templates - this is their view into what a
+// candidate has tried, not something the candidate side needs to read back.
+router.get("/:id/submissions", requireAuth, async (req, res) => {
+  const owns = await pool.query("SELECT 1 FROM rooms WHERE id = $1 AND created_by = $2", [
+    req.params.id,
+    req.user.sub,
+  ]);
+  if (!owns.rows[0]) return res.status(404).json({ error: "room not found" });
+
+  const { rows } = await pool.query(
+    `SELECT id, language, code, stdin, status, stdout, stderr, compile_output, submitted_by, created_at
+     FROM submissions WHERE room_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.params.id]
+  );
+  res.json(rows);
+});
+
 router.delete("/:id", requireAuth, async (req, res) => {
   const { rowCount } = await pool.query(
     "UPDATE rooms SET active = false WHERE id = $1 AND created_by = $2",

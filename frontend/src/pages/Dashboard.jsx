@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, clearSession, copyToClipboard, getUser } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
+import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
@@ -122,56 +123,52 @@ export default function Dashboard() {
       {error && <div className="error">{error}</div>}
 
       <h2>Sessions</h2>
-      <div className="card-grid">
+      <CardGrid>
         {rooms.map((r) => (
-          <div key={r.id} className="card" onClick={() => navigate(`/room/${r.id}`)}>
-            <div className="card-head">
-              <strong>{r.title}</strong>
-              <span className="muted">{r.language}</span>
-            </div>
-            <pre className="card-preview">{r.preview || " "}</pre>
-            <div className="card-footer">
-              <span className="muted">refreshed {formatRelativeTime(r.last_active_at)}</span>
-              <div className="card-actions">
+          <PreviewCard
+            key={r.id}
+            title={r.title}
+            subtitle={r.language}
+            preview={r.preview}
+            footer={`refreshed ${formatRelativeTime(r.last_active_at)}`}
+            onClick={() => navigate(`/room/${r.id}`)}
+            actions={
+              <>
                 <button className="link" onClick={(e) => copyLink(r.id, e)}>
                   {copiedId === r.id ? "Copied!" : "Copy link"}
                 </button>
                 <button className="link danger" onClick={(e) => deleteRoom(r.id, e)}>
                   Delete
                 </button>
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
         ))}
         {rooms.length === 0 && <div className="muted">No sessions yet</div>}
-      </div>
+      </CardGrid>
 
       <h2>Code templates</h2>
       <p className="muted">
         Save one from inside a session ("Save as template"). Click a card to start a new session from it.
       </p>
-      <div className="card-grid">
+      <CardGrid>
         {templates.map((t) => (
-          <div key={t.id} className="card" onClick={() => createFromTemplate(t)}>
-            <div className="card-head">
-              <strong>{t.title}</strong>
-              <span className="muted">{t.language}</span>
-            </div>
-            <pre className="card-preview">{t.code || " "}</pre>
-            <div className="card-footer">
-              <span className="muted">
-                {creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
-              </span>
-              <div className="card-actions">
-                <button className="link danger" onClick={(e) => deleteTemplate(t.id, e)}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <PreviewCard
+            key={t.id}
+            title={t.title}
+            subtitle={t.language}
+            preview={t.code}
+            footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
+            onClick={() => createFromTemplate(t)}
+            actions={
+              <button className="link danger" onClick={(e) => deleteTemplate(t.id, e)}>
+                Delete
+              </button>
+            }
+          />
         ))}
         {templates.length === 0 && <div className="muted">No templates yet</div>}
-      </div>
+      </CardGrid>
     </div>
   );
 }
