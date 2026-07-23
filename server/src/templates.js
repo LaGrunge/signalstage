@@ -41,6 +41,19 @@ router.put("/:id", async (req, res) => {
   res.json(rows[0]);
 });
 
+router.patch("/:id", async (req, res) => {
+  const { title } = req.body || {};
+  if (!title?.trim()) return res.status(400).json({ error: "title is required" });
+  const { rows } = await pool.query(
+    `UPDATE templates SET title = $1, updated_at = now()
+     WHERE id = $2 AND created_by = $3
+     RETURNING id, title, language, code, created_at, updated_at`,
+    [title.trim(), req.params.id, req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "template not found" });
+  res.json(rows[0]);
+});
+
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await pool.query(
     "DELETE FROM templates WHERE id = $1 AND created_by = $2",

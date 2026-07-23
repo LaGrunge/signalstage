@@ -58,3 +58,10 @@ export function startCollabServer() {
 export function getLiveDocument(roomId) {
   return hocuspocusServer?.documents.get(roomId);
 }
+
+// Live count of currently-connected participants, for the dashboard's card
+// footer icon - 0 (not undefined) when the document was never loaded/has been
+// evicted, since "nobody connected" and "no data" look the same to the UI.
+export function getRoomParticipantCount(roomId) {
+  return hocuspocusServer?.documents.get(roomId)?.getConnectionsCount() ?? 0;
+}

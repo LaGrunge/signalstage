@@ -2,7 +2,7 @@ import { Router } from "express";
 import { pool } from "./db.js";
 import { requireAuth } from "./auth.js";
 import { LANGUAGES } from "./judge0.js";
-import { getLiveDocument } from "./collabServer.js";
+import { getLiveDocument, getRoomParticipantCount } from "./collabServer.js";
 
 export const router = Router();
 
@@ -49,9 +49,21 @@ router.get("/", requireAuth, async (req, res) => {
     rows.map((room) => {
       const preview = roomPreview(room);
       const { initial_code, last_code, ...rest } = room;
-      return { ...rest, preview };
+      return { ...rest, preview, participantCount: getRoomParticipantCount(room.id) };
     })
   );
+});
+
+router.patch("/:id", requireAuth, async (req, res) => {
+  const { title } = req.body || {};
+  if (!title?.trim()) return res.status(400).json({ error: "title is required" });
+  const { rows } = await pool.query(
+    `UPDATE rooms SET title = $1 WHERE id = $2 AND created_by = $3
+     RETURNING id, title, language, active, created_at, last_active_at`,
+    [title.trim(), req.params.id, req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  res.json(rows[0]);
 });
 
 // Intentionally public: the room id itself (a UUIDv4) is the shared secret in

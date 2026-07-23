@@ -7,6 +7,7 @@ import CollabEditor from "../components/CollabEditor.jsx";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import { api, collabUrl, getUser } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
+import { highlightCode } from "../lib/highlight.js";
 
 export default function Room() {
   const { id: roomId } = useParams();
@@ -277,7 +278,7 @@ export default function Room() {
                     <PreviewCard
                       key={t.id}
                       title={t.title}
-                      subtitle={t.language}
+                      language={t.language}
                       preview={t.code}
                       footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
                       onClick={() => insertTemplate(t)}
@@ -292,7 +293,7 @@ export default function Room() {
                     <PreviewCard
                       key={s.id}
                       title={s.status || "Unknown"}
-                      subtitle={s.language}
+                      language={s.language}
                       preview={s.code}
                       footer={`${s.submitted_by} · ${formatRelativeTime(s.created_at)}`}
                       onClick={() => setViewingSubmission(s)}
@@ -362,7 +363,12 @@ export default function Room() {
             <div className="modal-body">
               <div className="modal-code">
                 <label>Code</label>
-                <pre>{viewingSubmission.code}</pre>
+                <pre>
+                  <code
+                    className="hljs"
+                    dangerouslySetInnerHTML={highlightCode(viewingSubmission.code, viewingSubmission.language)}
+                  />
+                </pre>
               </div>
               <div className="modal-output">
                 <label>Result</label>

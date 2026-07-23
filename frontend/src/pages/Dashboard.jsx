@@ -57,8 +57,7 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteRoom(id, e) {
-    e.stopPropagation();
+  async function deleteRoom(id) {
     try {
       await api.delete(`/rooms/${id}`);
       await loadRooms();
@@ -67,8 +66,7 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteTemplate(id, e) {
-    e.stopPropagation();
+  async function deleteTemplate(id) {
     try {
       await api.delete(`/templates/${id}`);
       await loadTemplates();
@@ -77,8 +75,25 @@ export default function Dashboard() {
     }
   }
 
-  async function copyLink(id, e) {
-    e.stopPropagation();
+  async function renameRoom(id, title) {
+    try {
+      await api.patch(`/rooms/${id}`, { title });
+      await loadRooms();
+    } catch {
+      setError("Failed to rename session");
+    }
+  }
+
+  async function renameTemplate(id, title) {
+    try {
+      await api.patch(`/templates/${id}`, { title });
+      await loadTemplates();
+    } catch {
+      setError("Failed to rename template");
+    }
+  }
+
+  async function copyLink(id) {
     try {
       await copyToClipboard(`${window.location.origin}/room/${id}`);
       setCopiedId(id);
@@ -128,20 +143,16 @@ export default function Dashboard() {
           <PreviewCard
             key={r.id}
             title={r.title}
-            subtitle={r.language}
+            language={r.language}
             preview={r.preview}
             footer={`refreshed ${formatRelativeTime(r.last_active_at)}`}
+            participantCount={r.participantCount}
             onClick={() => navigate(`/room/${r.id}`)}
-            actions={
-              <>
-                <button className="link" onClick={(e) => copyLink(r.id, e)}>
-                  {copiedId === r.id ? "Copied!" : "Copy link"}
-                </button>
-                <button className="link danger" onClick={(e) => deleteRoom(r.id, e)}>
-                  Delete
-                </button>
-              </>
-            }
+            onRename={(newTitle) => renameRoom(r.id, newTitle)}
+            actions={[
+              { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
+              { key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) },
+            ]}
           />
         ))}
         {rooms.length === 0 && <div className="muted">No sessions yet</div>}
@@ -156,15 +167,12 @@ export default function Dashboard() {
           <PreviewCard
             key={t.id}
             title={t.title}
-            subtitle={t.language}
+            language={t.language}
             preview={t.code}
             footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
             onClick={() => createFromTemplate(t)}
-            actions={
-              <button className="link danger" onClick={(e) => deleteTemplate(t.id, e)}>
-                Delete
-              </button>
-            }
+            onRename={(newTitle) => renameTemplate(t.id, newTitle)}
+            actions={[{ key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) }]}
           />
         ))}
         {templates.length === 0 && <div className="muted">No templates yet</div>}
