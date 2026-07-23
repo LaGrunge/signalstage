@@ -99,6 +99,23 @@ router.get("/:id", async (req, res) => {
   res.json(rows[0]);
 });
 
+// Intentionally public, same reasoning as GET /:id above - anyone in the
+// room (candidate included) can hit Ctrl+S / the Save button to force a
+// persist right now instead of waiting on Hocuspocus's own debounce, which
+// is what the dashboard preview and a mid-session crash otherwise depend on
+// (see collabServer.js's onStoreDocument comment).
+router.post("/:id/save", async (req, res) => {
+  const { code } = req.body || {};
+  if (typeof code !== "string") return res.status(400).json({ error: "code is required" });
+  const { rows } = await pool.query(
+    `UPDATE rooms SET last_code = $2, last_active_at = now() WHERE id = $1 AND active = true
+     RETURNING id, last_active_at`,
+    [req.params.id, code]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  res.json(rows[0]);
+});
+
 // Interviewer-only, same as templates - this is their view into what a
 // candidate has tried, not something the candidate side needs to read back.
 router.get("/:id/submissions", requireAuth, async (req, res) => {

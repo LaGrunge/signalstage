@@ -28,6 +28,8 @@ export default function Room() {
   const [leftPanel, setLeftPanel] = useState(null); // null | "templates" | "versions"
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [runEnabled, setRunEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
 
   // Templates/versions/the run-permission toggle are the interviewer's own
   // tools - gated on actually owning *this* room (created_by), not just on
@@ -116,6 +118,34 @@ export default function Room() {
   }, [provider]);
 
   useEffect(() => () => provider?.destroy(), [provider]);
+
+  async function saveCode() {
+    setSaving(true);
+    try {
+      const code = ydoc.getText("code").toString();
+      await api.post(`/rooms/${roomId}/save`, { code });
+      setSavedAt(true);
+      setTimeout(() => setSavedAt(false), 2000);
+    } catch {
+      window.alert("Failed to save code");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Ctrl/Cmd+S normally triggers the browser's "Save page" dialog - intercept
+  // it globally so it forces an immediate persist instead (Hocuspocus's own
+  // save is debounced by a few seconds; this bypasses that on demand).
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveCode();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [roomId, ydoc]);
 
   function changeLanguage(lang) {
     ydoc.getMap("config").set("language", lang);
@@ -248,6 +278,9 @@ export default function Room() {
             </option>
           ))}
         </select>
+        <button onClick={saveCode} disabled={saving} title="Save code (Ctrl+S)">
+          {saving ? "Saving…" : savedAt ? "Saved" : "💾 Save"}
+        </button>
         <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : ""}>
           {running ? "Running…" : "▶ Run"}
         </button>
