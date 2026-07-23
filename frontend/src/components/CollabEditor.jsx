@@ -58,7 +58,13 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
       const rules = [];
       provider.awareness.getStates().forEach((state, clientID) => {
         if (clientID === ydoc.clientID || !state.user) return;
-        const color = state.user.color;
+        // color, like name, is attacker-controlled - any peer can set their
+        // own awareness state to arbitrary JSON (e.g. via devtools), and it
+        // lands directly in a CSS rule below. Our own client only ever sends
+        // an hsl(...) string (see setAwarenessField below), but a hostile
+        // peer could send `red; } body { display:none } /*` to break out of
+        // the rule - reject anything that isn't a plain hex/rgb/hsl color.
+        const color = isSafeCssColor(state.user.color) ? state.user.color : "#888888";
         const name = escapeCssString(state.user.name || "Anonymous");
         rules.push(`
           .yRemoteSelection-${clientID} { background-color: ${color}55; }
@@ -134,6 +140,11 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
 // so a display name can't break out of the string and inject arbitrary CSS.
 function escapeCssString(str) {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, " ");
+}
+
+const SAFE_CSS_COLOR_RE = /^#[0-9a-fA-F]{3,8}$|^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$|^hsl\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*\)$/;
+function isSafeCssColor(value) {
+  return typeof value === "string" && SAFE_CSS_COLOR_RE.test(value);
 }
 
 function hashCode(str) {
