@@ -19,7 +19,7 @@ export default function Register() {
       saveSession(data.token, data.user);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.error || "Не удалось зарегистрироваться");
+      setError(err.response?.data?.error || "Sign up failed");
     } finally {
       setLoading(false);
     }
@@ -29,12 +29,12 @@ export default function Register() {
     <div className="auth-page">
       <form className="auth-card" onSubmit={onSubmit}>
         <h1>SignalStage</h1>
-        <p className="subtitle">Регистрация интервьюера</p>
-        <input type="text" placeholder="Имя" value={name} onChange={(e) => setName(e.target.value)} required />
+        <p className="subtitle">Interviewer sign up</p>
+        <input type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input
           type="password"
-          placeholder="Пароль (минимум 8 символов)"
+          placeholder="Password (min. 8 characters)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -42,10 +42,10 @@ export default function Register() {
         />
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={loading}>
-          {loading ? "Создаём…" : "Зарегистрироваться"}
+          {loading ? "Creating…" : "Sign up"}
         </button>
         <p className="hint">
-          Уже есть аккаунт? <Link to="/login">Войти</Link>
+          Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </form>
     </div>

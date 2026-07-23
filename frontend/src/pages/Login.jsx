@@ -18,7 +18,7 @@ export default function Login() {
       saveSession(data.token, data.user);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.error || "Не удалось войти");
+      setError(err.response?.data?.error || "Login failed");
     } finally {
       setLoading(false);
     }
@@ -28,21 +28,21 @@ export default function Login() {
     <div className="auth-page">
       <form className="auth-card" onSubmit={onSubmit}>
         <h1>SignalStage</h1>
-        <p className="subtitle">Вход для интервьюеров</p>
+        <p className="subtitle">Interviewer sign in</p>
         <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input
           type="password"
-          placeholder="Пароль"
+          placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={loading}>
-          {loading ? "Входим…" : "Войти"}
+          {loading ? "Signing in…" : "Sign in"}
         </button>
         <p className="hint">
-          Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
+          No account? <Link to="/register">Sign up</Link>
         </p>
       </form>
     </div>

@@ -74,14 +74,14 @@ export default function Room() {
       const { data } = await api.post("/execute", { roomId, language, code, stdin });
       setOutput(data);
     } catch (err) {
-      setOutput({ error: err.response?.data?.error || "Не удалось выполнить код" });
+      setOutput({ error: err.response?.data?.error || "Failed to run code" });
     } finally {
       setRunning(false);
     }
   }
 
-  if (notFound) return <div className="center-message">Сессия не найдена или закрыта.</div>;
-  if (!room) return <div className="center-message">Загрузка…</div>;
+  if (notFound) return <div className="center-message">Session not found or closed.</div>;
+  if (!room) return <div className="center-message">Loading…</div>;
 
   if (!userName) {
     return (
@@ -95,9 +95,9 @@ export default function Room() {
           }}
         >
           <h1>{room.title}</h1>
-          <p className="subtitle">Как вас представить в сессии?</p>
-          <input placeholder="Ваше имя" value={nameInput} onChange={(e) => setNameInput(e.target.value)} required />
-          <button type="submit">Войти в сессию</button>
+          <p className="subtitle">What should we call you?</p>
+          <input placeholder="Your name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} required />
+          <button type="submit">Join session</button>
         </form>
       </div>
     );
@@ -109,7 +109,7 @@ export default function Room() {
         <div>
           <strong>{room.title}</strong>
           <span className={`status ${connected ? "online" : "offline"}`}>
-            {connected ? "подключено" : "подключение…"}
+            {connected ? "connected" : "connecting…"}
           </span>
         </div>
         <select value={language} onChange={(e) => changeLanguage(e.target.value)}>
@@ -120,7 +120,7 @@ export default function Room() {
           ))}
         </select>
         <button onClick={runCode} disabled={running}>
-          {running ? "Выполняем…" : "▶ Запустить"}
+          {running ? "Running…" : "▶ Run"}
         </button>
       </header>
 
@@ -134,7 +134,7 @@ export default function Room() {
             <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} rows={6} />
           </div>
           <div className="io-block output">
-            <label>Результат</label>
+            <label>Output</label>
             {output?.error && <pre className="error">{output.error}</pre>}
             {output && !output.error && (
               <>
@@ -146,7 +146,7 @@ export default function Room() {
                 {output.stderr && <pre className="stderr">{output.stderr}</pre>}
               </>
             )}
-            {!output && <div className="muted">Нажмите «Запустить», чтобы увидеть вывод</div>}
+            {!output && <div className="muted">Click "Run" to see the output</div>}
           </div>
         </div>
       </div>

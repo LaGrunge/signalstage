@@ -18,7 +18,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     api.get("/languages").then(({ data }) => setLanguages(data));
-    loadRooms().catch(() => setError("Не удалось загрузить сессии"));
+    loadRooms().catch(() => setError("Failed to load sessions"));
   }, []);
 
   async function createRoom(e) {
@@ -29,7 +29,7 @@ export default function Dashboard() {
       setTitle("");
       await loadRooms();
     } catch {
-      setError("Не удалось создать сессию");
+      setError("Failed to create session");
     }
   }
 
@@ -50,14 +50,14 @@ export default function Dashboard() {
         <div>
           <span className="muted">{user?.name}</span>
           <button className="link" onClick={logout}>
-            Выйти
+            Sign out
           </button>
         </div>
       </header>
 
       <form className="new-room" onSubmit={createRoom}>
         <input
-          placeholder="Название интервью (например, Иван И. — Backend)"
+          placeholder="Interview title (e.g. Jane D. — Backend)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
@@ -68,7 +68,7 @@ export default function Dashboard() {
             </option>
           ))}
         </select>
-        <button type="submit">Создать сессию</button>
+        <button type="submit">Create session</button>
       </form>
       {error && <div className="error">{error}</div>}
 
@@ -80,22 +80,22 @@ export default function Dashboard() {
               <span className="muted"> · {r.language}</span>
             </div>
             <div className="room-actions">
-              <Link to={`/room/${r.id}`}>Открыть</Link>
+              <Link to={`/room/${r.id}`}>Open</Link>
               <button
                 className="link"
                 onClick={() => {
                   navigator.clipboard.writeText(`${window.location.origin}/room/${r.id}`);
                 }}
               >
-                Скопировать ссылку
+                Copy link
               </button>
               <button className="link danger" onClick={() => deleteRoom(r.id)}>
-                Удалить
+                Delete
               </button>
             </div>
           </li>
         ))}
-        {rooms.length === 0 && <li className="muted">Пока нет сессий</li>}
+        {rooms.length === 0 && <li className="muted">No sessions yet</li>}
       </ul>
     </div>
   );
