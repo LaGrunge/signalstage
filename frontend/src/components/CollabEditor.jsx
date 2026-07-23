@@ -10,6 +10,8 @@ const MONACO_LANGUAGE = {
   python: "python",
   go: "go",
   java: "java",
+  bash: "shell",
+  mariadb: "sql",
 };
 
 // ydoc/provider are owned by the parent (Room) so language changes don't tear
