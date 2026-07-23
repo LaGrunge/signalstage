@@ -233,7 +233,16 @@ script).
 word-based completion — actual symbol-aware completion from real language
 servers):
 
-- **C++** — `clangd` (Debian bookworm, apt)
+- **C++** — `clangd` 22, from LLVM's own apt repo (`apt.llvm.org`), not
+  Debian bookworm's apt package (clangd 14, which predates `-std=c++2c`/C++26
+  support entirely — Judge0 compiles C++ with GCC 15's `-std=c++26`, see
+  "Ubuntu 26.04 vs. Debian buster" above). Pointed at LLVM's own `libc++`
+  (also from apt.llvm.org) instead of bookworm's `libstdc++-12-dev` — the
+  latter is GCC 12 (2022) and is missing `<print>`, `<expected>`, and other
+  C++23/26 library additions outright, so those headers showed as "file not
+  found" even once the `-std` flag itself was accepted. Both are pinned per
+  session via a generated `.clangd` file (`lsp/bridge.js`), since clangd has
+  no `-std`/`-stdlib` command-line flag of its own.
 - **Python** — `pylsp` / python-lsp-server (pip)
 - **Go** — `gopls` (official Go toolchain, fetched directly from go.dev —
   bookworm's `golang-go` apt package is too old, its go.mod parser can't even
