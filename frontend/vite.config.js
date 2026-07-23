@@ -7,11 +7,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": { target: "http://localhost:4000", changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, "") },
-      "/collab": {
-        target: "ws://localhost:1234",
-        ws: true,
-        rewrite: (p) => p.replace(/^\/collab/, ""),
-      },
+      // No path rewrite: the provider connects to exactly "/collab" (room
+      // name travels over the websocket protocol, not the URL path), and
+      // Hocuspocus's server doesn't route by path anyway.
+      "/collab": { target: "ws://localhost:1234", ws: true },
     },
   },
 });
