@@ -21,6 +21,18 @@ export default function Room() {
   const [participants, setParticipants] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [templateToInsert, setTemplateToInsert] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // Templates are the interviewer's private library - a candidate who joined
+  // via the link without logging in just won't see template controls at all.
+  const isInterviewer = Boolean(getUser());
+
+  function refreshTemplates() {
+    return api
+      .get("/templates")
+      .then(({ data }) => setTemplates(data))
+      .catch(() => {});
+  }
 
   useEffect(() => {
     api
@@ -37,11 +49,7 @@ export default function Room() {
       setUserName(loggedInUser.name);
       sessionStorage.setItem("displayName", loggedInUser.name);
     }
-    // Templates are the interviewer's private library - candidates joining
-    // without a login just won't see the insert-template control.
-    if (loggedInUser) {
-      api.get("/templates").then(({ data }) => setTemplates(data)).catch(() => {});
-    }
+    if (loggedInUser) refreshTemplates();
   }, [roomId]);
 
   const ydoc = useMemo(() => new Y.Doc(), [roomId]);
@@ -103,6 +111,21 @@ export default function Room() {
     if (template.language !== language) changeLanguage(template.language);
   }
 
+  async function saveAsTemplate() {
+    const title = window.prompt("Template title:");
+    if (!title?.trim()) return;
+    setSavingTemplate(true);
+    try {
+      const code = ydoc.getText("code").toString();
+      await api.post("/templates", { title: title.trim(), language, code });
+      await refreshTemplates();
+    } catch {
+      window.alert("Failed to save template");
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
   async function runCode() {
     setRunning(true);
     setOutput(null);
@@ -156,10 +179,10 @@ export default function Room() {
             </span>
           ))}
         </div>
-        {templates.length > 0 && (
+        {isInterviewer && (
           <>
             <select value={templateToInsert} onChange={(e) => setTemplateToInsert(e.target.value)}>
-              <option value="">Insert template…</option>
+              <option value="">{templates.length ? "Insert template…" : "No templates yet"}</option>
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.title} ({t.language})
@@ -168,6 +191,9 @@ export default function Room() {
             </select>
             <button className="link" onClick={insertTemplate} disabled={!templateToInsert}>
               Insert
+            </button>
+            <button className="link" onClick={saveAsTemplate} disabled={savingTemplate}>
+              {savingTemplate ? "Saving…" : "Save as template"}
             </button>
           </>
         )}

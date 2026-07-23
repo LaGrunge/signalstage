@@ -136,4 +136,7 @@ button.link.danger { color: #f28b82; }
 .io-block.output { flex: 1; overflow-y: auto; }
 .io-block.output pre { background: #1a1a28; padding: 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
 .io-block.output pre.stderr { color: #f28b82; }
-.io-block.output pre.compile { color: #f2c94c; }
+/* No forced color here: compile output should show the compiler's own ANSI
+   colors (rendered by ansi-to-react) when it emits any, and fall back to
+   normal text color otherwise - a blanket color here would override/mask
+   real diagnostic colors instead of just tinting plain uncolored text. */
