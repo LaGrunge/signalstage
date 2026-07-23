@@ -77,9 +77,10 @@ cgroup-режим ядра на общей машине (здесь заодно
   сотни МБ виртуальной памяти под рантайм ещё до `Hello, world`.
 - `MAX_PROCESSES_AND_OR_THREADS` поднят до 200 — GC/JIT-потоки JVM и
   GOMAXPROCS-воркеры `go build` считаются от видимого числа ядер.
-- `worker` в `judge0/docker-compose.yml` закреплён на 4 ядра (`cpuset: "0-3"`)
-  — иначе на этом 36-ядерном хосте JVM по умолчанию поднимает GC/JIT-потоки
-  пропорционально всем 36 ядрам.
+- `worker` в `judge0/docker-compose.yml` закреплён через `cpuset` на подмножество
+  ядер (значение зависит от размера инстанса — см. комментарий в файле) —
+  иначе JVM по умолчанию поднимает GC/JIT-потоки пропорционально всем видимым
+  ядрам хоста.
 - `judge0/fixups.sql` переопределяет `run_cmd` для Java (id 62) явными
   флагами JVM (`-Xmx256m`, `-XX:MaxMetaspaceSize=128m`, `-XX:+UseSerialGC`,
   `-XX:TieredStopAtLevel=1`, …) — без них JVM резервирует ~1GB под metaspace

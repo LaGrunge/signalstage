@@ -27,13 +27,17 @@ services:
     volumes:
       - ./judge0.conf:/judge0.conf:ro
     privileged: true
-    # Pin to 4 CPUs: this is a shared host, and JVM/Go both size default
-    # thread pools (GC, JIT, GOMAXPROCS) off the visible CPU count. Left
-    # unpinned they see all 36 host cores and spin up far more threads than
-    # MAX_PROCESSES_AND_OR_THREADS allows, failing on pthread_create (EAGAIN)
-    # before user code even runs. cpuset (not just a cpu quota) is what makes
-    # sched_getaffinity/availableProcessors() actually report a small number.
-    cpuset: "0-3"
+    # Pin to a subset of CPUs: JVM/Go both size default thread pools (GC, JIT,
+    # GOMAXPROCS) off the visible CPU count. Left unpinned on a many-core host
+    # they spin up far more threads than MAX_PROCESSES_AND_OR_THREADS allows,
+    # failing on pthread_create (EAGAIN) before user code even runs. cpuset
+    # (not just a cpu quota) is what makes sched_getaffinity/
+    # availableProcessors() actually report a small number. On a small
+    # dedicated host (e.g. a 4-vCPU instance), also leave a couple of cores
+    # free for postgres/api/frontend/judge0 server-db-redis rather than
+    # claiming every core for the worker. Adjust the range to your instance
+    # size - e.g. "0-3" on an 8+ vCPU box.
+    cpuset: "2-3"
     <<: *default-logging
     restart: always
 
