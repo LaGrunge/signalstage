@@ -31,7 +31,29 @@ const LANGUAGES = {
     spawn: (dir) => {
       const dataDir = path.join(dir, ".jdt-data");
       fs.mkdirSync(dataDir, { recursive: true });
-      return spawn("/opt/jdtls/bin/jdtls", ["-data", dataDir], { cwd: dir });
+      // No bin/jdtls wrapper script in this distribution (see Dockerfile) -
+      // launch the equinox OSGi runtime directly, the same way that script
+      // would. The launcher jar's filename is version-stamped.
+      const pluginsDir = "/opt/jdtls/plugins";
+      const launcher = fs.readdirSync(pluginsDir).find((f) => f.startsWith("org.eclipse.equinox.launcher_"));
+      if (!launcher) throw new Error("equinox launcher jar not found in /opt/jdtls/plugins");
+      return spawn(
+        "java",
+        [
+          "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+          "-Dosgi.bundles.defaultStartLevel=4",
+          "-Declipse.product=org.eclipse.jdt.ls.core.product",
+          "-Dlog.level=ERROR",
+          "-Xmx768m",
+          "--add-modules=ALL-SYSTEM",
+          "--add-opens", "java.base/java.util=ALL-UNNAMED",
+          "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+          "-jar", path.join(pluginsDir, launcher),
+          "-configuration", "/opt/jdtls/config_linux",
+          "-data", dataDir,
+        ],
+        { cwd: dir }
+      );
     },
   },
 };
@@ -69,15 +91,37 @@ function frame(body) {
   return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"), body]);
 }
 
-function rewrite(body, from, to) {
-  if (!body.includes(from)) return body;
-  return Buffer.from(body.toString("utf8").split(from).join(to), "utf8");
+function rewrite(body, pairs) {
+  // Re-serializing through JSON.parse/stringify normalizes any escaping
+  // quirks (e.g. pylsp/ujson emit "file:\/\/\/tmp\/..." with escaped
+  // slashes) before doing the plain substring swaps below - a raw
+  // byte-level replace on the wire text missed those and silently left
+  // real temp-dir paths leaking to the client.
+  let text;
+  try {
+    text = JSON.stringify(JSON.parse(body.toString("utf8")));
+  } catch {
+    return body;
+  }
+  let changed = false;
+  for (const [from, to] of pairs) {
+    if (text.includes(from)) {
+      text = text.split(from).join(to);
+      changed = true;
+    }
+  }
+  return changed ? Buffer.from(text, "utf8") : body;
 }
 
 function handleConnection(ws, langKey) {
   const lang = LANGUAGES[langKey];
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lsp-"));
   const realRootUri = `file://${tempDir}`;
+  // Diagnostic *messages* (free text, not just the structured uri field)
+  // sometimes mention the bare filesystem path too (e.g. gopls: "no active
+  // builds contain /tmp/lsp-xxxx/main.go") - rewrite both forms.
+  const toRealPairs = [[PLACEHOLDER_ROOT, realRootUri], ["/workspace", tempDir]];
+  const toPlaceholderPairs = [[realRootUri, PLACEHOLDER_ROOT], [tempDir, "/workspace"]];
 
   fs.writeFileSync(path.join(tempDir, lang.filename), "");
   lang.prepare?.(tempDir);
@@ -117,12 +161,12 @@ function handleConnection(ws, langKey) {
   child.stderr.on("data", (chunk) => process.stderr.write(`[${langKey}] ${chunk}`));
 
   const toChild = new MessageFramer((body) => {
-    if (child.stdin.writable) child.stdin.write(frame(rewrite(body, PLACEHOLDER_ROOT, realRootUri)));
+    if (child.stdin.writable) child.stdin.write(frame(rewrite(body, toRealPairs)));
   });
   ws.on("message", (data) => toChild.push(Buffer.isBuffer(data) ? data : Buffer.from(data)));
 
   const toClient = new MessageFramer((body) => {
-    if (ws.readyState === ws.OPEN) ws.send(frame(rewrite(body, realRootUri, PLACEHOLDER_ROOT)));
+    if (ws.readyState === ws.OPEN) ws.send(frame(rewrite(body, toPlaceholderPairs)));
   });
   child.stdout.on("data", (chunk) => toClient.push(chunk));
 

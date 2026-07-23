@@ -28,6 +28,11 @@ export function collabUrl() {
   return `${proto}://${window.location.host}/collab`;
 }
 
+export function lspUrl(language) {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/lsp/${language}`;
+}
+
 // navigator.clipboard requires a secure context (HTTPS or localhost) - it's
 // unavailable/rejects silently when the app is served over plain HTTP, so
 // fall back to the legacy execCommand("copy") path via a hidden textarea.

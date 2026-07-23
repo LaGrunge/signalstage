@@ -30,12 +30,22 @@ services:
       signalstage_net: {}
     restart: always
 
+  lsp:
+    build: ./lsp
+    # Language servers spawn per-connection (see lsp/bridge.js) and can be
+    # memory-hungry, especially jdtls - cap the whole service so a handful of
+    # concurrent interview sessions can't starve postgres/api/frontend/judge0
+    # on this same small box. Raise if you expect more concurrent sessions.
+    mem_limit: 3g
+    restart: always
+
   frontend:
     build: ./frontend
     ports:
       - "${HTTP_PORT:-80}:80"
     depends_on:
       - api
+      - lsp
     restart: always
 
 volumes:

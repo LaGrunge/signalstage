@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
+import { connectLsp } from "../lib/lspClient.js";
+import { lspUrl } from "../lib/api.js";
 
 const MONACO_LANGUAGE = {
   cpp: "cpp",
@@ -14,8 +16,15 @@ const MONACO_LANGUAGE = {
 // down the collaborative session - only the editor <-> Yjs binding is local.
 export default function CollabEditor({ ydoc, provider, language, userName }) {
   const bindingRef = useRef(null);
+  const monacoRef = useRef(null);
+  const modelRef = useRef(null);
+  const lspRef = useRef(null);
+  const [editorReady, setEditorReady] = useState(false);
 
   function handleMount(editor, monaco) {
+    monacoRef.current = monaco;
+    modelRef.current = editor.getModel();
+
     const ytext = ydoc.getText("code");
     bindingRef.current = new MonacoBinding(
       ytext,
@@ -28,9 +37,28 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
       name: userName,
       color: `hsl(${Math.abs(hashCode(userName)) % 360}, 70%, 45%)`,
     });
+
+    setEditorReady(true);
   }
 
   useEffect(() => () => bindingRef.current?.destroy(), []);
+
+  // Real LSP-backed diagnostics/completion/hover (see lib/lspClient.js) - one
+  // connection per language, torn down and reopened whenever the room's
+  // language changes so stale providers/sockets never pile up. Monaco loads
+  // asynchronously, so this effect can run once before handleMount has set
+  // monacoRef/modelRef - editorReady forces a re-run once it has.
+  useEffect(() => {
+    if (!editorReady) return;
+    lspRef.current?.dispose();
+    lspRef.current = connectLsp({
+      url: lspUrl(language),
+      languageId: MONACO_LANGUAGE[language] || "plaintext",
+      monacoNS: monacoRef.current,
+      model: modelRef.current,
+    });
+    return () => lspRef.current?.dispose();
+  }, [language, editorReady]);
 
   return (
     <Editor
