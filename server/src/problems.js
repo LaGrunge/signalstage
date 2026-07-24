@@ -175,7 +175,7 @@ router.put("/:id", async (req, res) => {
     const { rowCount } = await client.query(
       `UPDATE problems SET title = $1, description = $2, signature_hint = $3, difficulty = $4,
               folder_id = $5, is_shared = $6, updated_at = now()
-       WHERE id = $7 AND created_by = $8`,
+       WHERE id = $7 AND (created_by = $8 OR is_shared = true)`,
       [title.trim(), description || "", signatureHint || "", difficulty || 3, folderId || null, Boolean(shared), req.params.id, req.user.sub]
     );
     if (!rowCount) {
@@ -225,16 +225,22 @@ router.patch("/:id", async (req, res) => {
   values.push(req.params.id, req.user.sub);
 
   const { rowCount } = await pool.query(
-    `UPDATE problems SET ${sets.join(", ")}, updated_at = now() WHERE id = $${values.length - 1} AND created_by = $${values.length}`,
+    `UPDATE problems SET ${sets.join(", ")}, updated_at = now()
+     WHERE id = $${values.length - 1} AND (created_by = $${values.length} OR is_shared = true)`,
     values
   );
   if (!rowCount) return res.status(404).json({ error: "problem not found" });
   res.json(await fetchProblemDetail(req.params.id, req.user.sub));
 });
 
+// Any interviewer who can see a problem (owns it, or it's shared) can also
+// edit or delete it - a collaborative shared problem bank, not a per-owner
+// read-only share like templates. Includes problems seeded with no owner
+// at all (created_by IS NULL, e.g. the "Is Palindrome" migration seed) -
+// those would otherwise be permanently uneditable by anyone.
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await pool.query(
-    "DELETE FROM problems WHERE id = $1 AND created_by = $2",
+    "DELETE FROM problems WHERE id = $1 AND (created_by = $2 OR is_shared = true)",
     [req.params.id, req.user.sub]
   );
   if (!rowCount) return res.status(404).json({ error: "problem not found" });

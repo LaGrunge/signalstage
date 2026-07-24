@@ -145,8 +145,8 @@ export default function Problems() {
     setDraft((d) => ({ ...d, testCode: d.testCode.map((t) => (t.language === language ? { ...t, ...patch } : t)) }));
   }
 
-  function addSolution() {
-    setDraft((d) => ({ ...d, solutions: [...d.solutions, { language: TESTABLE_LANGUAGES[0], title: "", code: "" }] }));
+  function addSolution(language) {
+    setDraft((d) => ({ ...d, solutions: [...d.solutions, { language, title: "", code: "" }] }));
   }
 
   function updateSolution(i, patch) {
@@ -246,7 +246,7 @@ export default function Problems() {
                   onClick={() => startEdit(p)}
                   actions={[
                     { key: "like", label: p.likedByMe ? `♥ Unlike (${p.likesCount})` : `♡ Like (${p.likesCount})`, onClick: () => toggleLike(p) },
-                    ...(p.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }] : []),
+                    { key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) },
                   ]}
                 />
               ))}
@@ -341,42 +341,38 @@ export default function Problems() {
           />
 
           <h3 className="side-panel-subheading">
-            Reference solutions (authoring only - never shown to or run for candidates)
+            Reference solutions in {activeLang} (authoring only - never shown to or run for candidates)
           </h3>
-          {draft.solutions.map((s, i) => (
-            <div key={i} className="problem-solution-block">
-              <div className="problem-solution-row">
-                <select value={s.language} onChange={(e) => updateSolution(i, { language: e.target.value })}>
-                  {TESTABLE_LANGUAGES.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="e.g. brute force, optimal O(n)"
-                  value={s.title}
-                  onChange={(e) => updateSolution(i, { title: e.target.value })}
+          {draft.solutions
+            .map((s, i) => ({ s, i }))
+            .filter(({ s }) => s.language === activeLang)
+            .map(({ s, i }) => (
+              <div key={i} className="problem-solution-block">
+                <div className="problem-solution-row">
+                  <input
+                    placeholder="e.g. brute force, optimal O(n)"
+                    value={s.title}
+                    onChange={(e) => updateSolution(i, { title: e.target.value })}
+                  />
+                  <button className="link danger" onClick={() => removeSolution(i)}>
+                    Remove
+                  </button>
+                </div>
+                <Editor
+                  height="180px"
+                  language={MONACO_LANGUAGE[activeLang]}
+                  theme="vs-dark"
+                  value={s.code}
+                  onChange={(v) => updateSolution(i, { code: v ?? "" })}
+                  options={{ fontSize: 13, minimap: { enabled: false } }}
                 />
-                <button className="link danger" onClick={() => removeSolution(i)}>
-                  Remove
-                </button>
+                {validation?.find((v) => v.solutionId === s.id) && (
+                  <ValidationSummary result={validation.find((v) => v.solutionId === s.id)} />
+                )}
               </div>
-              <Editor
-                height="180px"
-                language={MONACO_LANGUAGE[s.language]}
-                theme="vs-dark"
-                value={s.code}
-                onChange={(v) => updateSolution(i, { code: v ?? "" })}
-                options={{ fontSize: 13, minimap: { enabled: false } }}
-              />
-              {validation?.find((v) => v.solutionId === s.id) && (
-                <ValidationSummary result={validation.find((v) => v.solutionId === s.id)} />
-              )}
-            </div>
-          ))}
-          <button className="link" onClick={addSolution}>
-            + Add reference solution
+            ))}
+          <button className="link" onClick={() => addSolution(activeLang)}>
+            + Add reference solution ({activeLang})
           </button>
           {draft.solutions.length > 0 && (
             <div>
