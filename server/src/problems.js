@@ -164,10 +164,37 @@ router.post("/", async (req, res) => {
   }
 });
 
+// Any interviewer who can see a problem (owns it, or it's shared) can edit
+// its content - a collaborative shared problem bank, not a per-owner
+// read-only share like templates. But *unsharing* (flipping is_shared to
+// false, which hides it from everyone except its creator - including
+// whoever just did it) and deleting outright are creator-only: letting any
+// authenticated interviewer silently hide or permanently destroy something
+// the whole team relies on is a real griefing vector, not just "fix a
+// typo together". Problems seeded with no owner at all (created_by IS
+// NULL, e.g. the "Is Palindrome" migration seed) can't be unshared/deleted
+// by anyone via the API as a consequence - by design, same as templates'
+// seeded assets.
+async function getAccess(id, userSub) {
+  const { rows } = await pool.query("SELECT created_by, is_shared FROM problems WHERE id = $1", [id]);
+  const row = rows[0];
+  if (!row) return null;
+  const isOwner = row.created_by === userSub;
+  if (!isOwner && !row.is_shared) return null;
+  return { isOwner, isShared: row.is_shared };
+}
+
 router.put("/:id", async (req, res) => {
   const error = validateBody(req.body);
   if (error) return res.status(400).json({ error });
   const { title, description, signatureHint, difficulty, folderId, shared, starters, solutions, testCode } = req.body;
+
+  const access = await getAccess(req.params.id, req.user.sub);
+  if (!access) return res.status(404).json({ error: "problem not found" });
+  if (!access.isOwner && access.isShared && !Boolean(shared)) {
+    return res.status(403).json({ error: "only the problem's owner can unshare it" });
+  }
+  const nextShared = access.isOwner ? Boolean(shared) : access.isShared;
 
   const client = await pool.connect();
   try {
@@ -175,8 +202,8 @@ router.put("/:id", async (req, res) => {
     const { rowCount } = await client.query(
       `UPDATE problems SET title = $1, description = $2, signature_hint = $3, difficulty = $4,
               folder_id = $5, is_shared = $6, updated_at = now()
-       WHERE id = $7 AND (created_by = $8 OR is_shared = true)`,
-      [title.trim(), description || "", signatureHint || "", difficulty || 3, folderId || null, Boolean(shared), req.params.id, req.user.sub]
+       WHERE id = $7`,
+      [title.trim(), description || "", signatureHint || "", difficulty || 3, folderId || null, nextShared, req.params.id]
     );
     if (!rowCount) {
       await client.query("ROLLBACK");
@@ -204,6 +231,12 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "difficulty must be between 1 and 5" });
   }
 
+  const access = await getAccess(req.params.id, req.user.sub);
+  if (!access) return res.status(404).json({ error: "problem not found" });
+  if (shared !== undefined && !access.isOwner) {
+    return res.status(403).json({ error: "only the problem's owner can change sharing" });
+  }
+
   const sets = [];
   const values = [];
   if (title !== undefined) {
@@ -222,25 +255,19 @@ router.patch("/:id", async (req, res) => {
     values.push(difficulty);
     sets.push(`difficulty = $${values.length}`);
   }
-  values.push(req.params.id, req.user.sub);
+  values.push(req.params.id);
 
   const { rowCount } = await pool.query(
-    `UPDATE problems SET ${sets.join(", ")}, updated_at = now()
-     WHERE id = $${values.length - 1} AND (created_by = $${values.length} OR is_shared = true)`,
+    `UPDATE problems SET ${sets.join(", ")}, updated_at = now() WHERE id = $${values.length}`,
     values
   );
   if (!rowCount) return res.status(404).json({ error: "problem not found" });
   res.json(await fetchProblemDetail(req.params.id, req.user.sub));
 });
 
-// Any interviewer who can see a problem (owns it, or it's shared) can also
-// edit or delete it - a collaborative shared problem bank, not a per-owner
-// read-only share like templates. Includes problems seeded with no owner
-// at all (created_by IS NULL, e.g. the "Is Palindrome" migration seed) -
-// those would otherwise be permanently uneditable by anyone.
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await pool.query(
-    "DELETE FROM problems WHERE id = $1 AND (created_by = $2 OR is_shared = true)",
+    "DELETE FROM problems WHERE id = $1 AND created_by = $2",
     [req.params.id, req.user.sub]
   );
   if (!rowCount) return res.status(404).json({ error: "problem not found" });

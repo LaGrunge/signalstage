@@ -246,7 +246,7 @@ export default function Problems() {
                   onClick={() => startEdit(p)}
                   actions={[
                     { key: "like", label: p.likedByMe ? `♥ Unlike (${p.likesCount})` : `♡ Like (${p.likesCount})`, onClick: () => toggleLike(p) },
-                    { key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) },
+                    ...(p.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }] : []),
                   ]}
                 />
               ))}
@@ -296,8 +296,13 @@ export default function Problems() {
                 ))}
               </select>
             </div>
-            <label>
-              <input type="checkbox" checked={draft.shared} onChange={(e) => updateDraft({ shared: e.target.checked })} />
+            <label title={draft.id && !draft.mine ? "Only the problem's owner can change sharing" : ""}>
+              <input
+                type="checkbox"
+                checked={draft.shared}
+                disabled={Boolean(draft.id) && !draft.mine}
+                onChange={(e) => updateDraft({ shared: e.target.checked })}
+              />
               {" "}Share with all interviewers
             </label>
           </div>
