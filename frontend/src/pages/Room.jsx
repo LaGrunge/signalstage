@@ -38,6 +38,7 @@ export default function Room() {
   const [testResults, setTestResults] = useState(null);
   const [testsRunning, setTestsRunning] = useState(false);
   const [taskOpen, setTaskOpen] = useState(true);
+  const [resultsTab, setResultsTab] = useState("output"); // "output" | "tests"
 
   // Templates/versions/the run-permission toggle are the interviewer's own
   // tools - gated on actually owning *this* room (created_by), not just on
@@ -270,6 +271,7 @@ export default function Room() {
   }
 
   async function runCode() {
+    setResultsTab("output");
     setRunning(true);
     setOutput(null);
     provider?.setAwarenessField("running", true);
@@ -289,6 +291,7 @@ export default function Room() {
   // mode: "run" (public example cases only, fast feedback) vs "submit"
   // (every case including hidden ones, graded and recorded).
   async function runTestsAction(mode) {
+    setResultsTab("tests");
     setTestsRunning(true);
     setTestResults(null);
     provider?.setAwarenessField("running", true);
@@ -363,7 +366,7 @@ export default function Room() {
             {runningOthers.map((p) => p.name).join(", ")} running code…
           </span>
         )}
-        {isInterviewer && !room.problemId && (
+        {isInterviewer && (
           <button className="link" onClick={toggleRunEnabled}>
             {runEnabled ? "Disable candidate run" : "Enable candidate run"}
           </button>
@@ -383,7 +386,10 @@ export default function Room() {
         <button onClick={saveCode} title="Download code as a file (Ctrl+S)">
           {savedAt ? "Saved" : "💾 Save"}
         </button>
-        {room.problemId ? (
+        <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : "Run the code as-is and see raw stdout/stderr"}>
+          {running ? "Running…" : "▶ Run"}
+        </button>
+        {room.problemId && (
           <>
             <button
               onClick={() => runTestsAction("run")}
@@ -400,10 +406,6 @@ export default function Room() {
               {testsRunning ? "Running…" : "Submit"}
             </button>
           </>
-        ) : (
-          <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : ""}>
-            {running ? "Running…" : "▶ Run"}
-          </button>
         )}
       </header>
 
@@ -557,7 +559,18 @@ export default function Room() {
           </div>
         </div>
         <div className="io-pane">
-          {room.problemId ? (
+          {room.problemId && (
+            <div className="lang-tabs io-result-tabs">
+              <button className={resultsTab === "output" ? "active" : ""} onClick={() => setResultsTab("output")}>
+                Output
+              </button>
+              <button className={resultsTab === "tests" ? "active" : ""} onClick={() => setResultsTab("tests")}>
+                Test results
+              </button>
+            </div>
+          )}
+
+          {resultsTab === "tests" && room.problemId ? (
             <div className="io-block output">
               <label>Test results</label>
               {testResults?.error && (
@@ -626,7 +639,11 @@ export default function Room() {
                     )}
                   </>
                 )}
-                {!output && <div className="muted">Click "Run" to see the output</div>}
+                {!output && (
+                  <div className="muted">
+                    Click "Run" to see the output{room.problemId ? " (runs the file as-is, not the test suite - handy for print debugging or trying your own ad-hoc calls)" : ""}
+                  </div>
+                )}
               </div>
             </>
           )}

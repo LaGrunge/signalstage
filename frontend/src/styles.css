@@ -353,6 +353,7 @@ button.link.danger { color: #f28b82; }
 .editor-pane { flex: 2; min-width: 0; display: flex; flex-direction: column; }
 .editor-pane-editor { flex: 1; min-height: 0; }
 .io-pane { flex: 1; display: flex; flex-direction: column; border-left: 1px solid #33334a; min-width: 320px; }
+.io-result-tabs { margin: 0; padding: 0 12px; flex: 0 0 auto; }
 
 .task-panel { border-bottom: 1px solid #33334a; background: #20202f; flex: 0 0 auto; }
 .task-panel-header {
