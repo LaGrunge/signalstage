@@ -11,6 +11,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// The JWT expires (server/src/auth.js: 12h TTL) well before the browser tab
+// closes. Without this, an expired token makes every /api/* call 401 forever
+// while the UI still looks logged in - no redirect, no explanation, just
+// every action silently failing. Outside the React tree, so a hard redirect
+// rather than react-router's navigate().
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && window.location.pathname !== "/login") {
+      clearSession();
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
 export function saveSession(token, user) {
   localStorage.setItem("token", token);
   localStorage.setItem("user", JSON.stringify(user));
