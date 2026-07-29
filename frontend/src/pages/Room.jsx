@@ -325,6 +325,7 @@ export default function Room() {
           <p className="subtitle">What should we call you?</p>
           <input placeholder="Your name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} required />
           <button type="submit">Join session</button>
+          <p className="hint muted">All code and edits in this session are recorded.</p>
         </form>
       </div>
     );
