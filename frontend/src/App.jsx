@@ -4,6 +4,7 @@ import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Problems from "./pages/Problems.jsx";
 import Room from "./pages/Room.jsx";
+import Playback from "./pages/Playback.jsx";
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem("token");
@@ -32,6 +33,17 @@ export default function App() {
         }
       />
       <Route path="/room/:id" element={<Room />} />
+      {/* Deliberately OUTSIDE /room/: nginx exempts /room/* from Basic Auth
+          for candidates, while /playback/* falls through to location / and
+          stays behind the gate - interviewer-only, like /dashboard. */}
+      <Route
+        path="/playback/:id"
+        element={
+          <RequireAuth>
+            <Playback />
+          </RequireAuth>
+        }
+      />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

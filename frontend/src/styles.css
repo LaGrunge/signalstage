@@ -384,3 +384,46 @@ button.link.danger { color: #f28b82; }
    colors (rendered by ansi-to-react) when it emits any, and fall back to
    normal text color otherwise - a blanket color here would override/mask
    real diagnostic colors instead of just tinting plain uncolored text. */
+
+/* --- Session playback (/playback/:id) --------------------------------- */
+.playback .pb-editor { flex: 1; min-height: 0; }
+.pb-banner { padding: 8px 16px; background: #23233a; border-bottom: 1px solid #33334a; }
+.pb-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #33334a;
+  background: #1b1b2b;
+}
+.pb-clock { min-width: 88px; text-align: center; font-variant-numeric: tabular-nums; }
+.pb-timeline {
+  position: relative;
+  flex: 1;
+  height: 26px;
+  background: #26263c;
+  border-radius: 6px;
+  cursor: pointer;
+  touch-action: none;
+}
+.pb-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #3a3a5c;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.pb-marker {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 6px;
+  margin-left: -3px;
+  border: none;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+.pb-marker:hover { transform: scaleY(1.25); }
+/* join/leave are context, not clickable payload - render them as thin ticks */
+.pb-marker-join, .pb-marker-leave { width: 2px; margin-left: -1px; top: 8px; bottom: 8px; opacity: 0.7; }

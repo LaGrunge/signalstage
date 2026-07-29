@@ -5,7 +5,7 @@ import { MonacoBinding } from "y-monaco";
 import { connectLsp } from "../lib/lspClient.js";
 import { lspUrl } from "../lib/api.js";
 
-const MONACO_LANGUAGE = {
+export const MONACO_LANGUAGE = {
   cpp: "cpp",
   python: "python",
   go: "go",
