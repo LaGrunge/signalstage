@@ -235,7 +235,44 @@ sandbox-related.
   extension.** `rooms.last_code` catches up on Hocuspocus's own debounce
   timer; there's a small window of very recent edits that could be lost on
   an ungraceful crash. Fine for this product's actual use case (a live
-  interview session), not a general-purpose durability guarantee.
+  interview session), not a general-purpose durability guarantee. The
+  playback recording (`yjs_updates`, 3s in-memory buffer in
+  `collabServer.js`) accepts the same window on purpose.
+- **Playback storage is never reclaimed.** `yjs_updates` grows ~1-2 MB per
+  heavy interview hour and "Delete" is a soft delete (`active=false`), so
+  nothing ever prunes the update log. A real cleanup (hard delete or a
+  retention sweep) is future work.
+
+## Session playback (recording + replay)
+
+Added after the first interview deployment; know these invariants before
+touching `collabServer.js`, `011_playback.sql`, or `Playback.jsx`:
+
+- **Keyframe rows are load-bearing for replay correctness, not an
+  optimization.** Client Yjs updates causally depend on the server-side
+  template/`last_code` seed done inside `onLoadDocument` - which `onChange`
+  never sees - and every Hocuspocus document unload+reload starts a *fresh
+  Yjs history* (no persistence extension), so applying two segments' updates
+  into one `Y.Doc` duplicates the text. Hence every document (re)load
+  records a `Y.encodeStateAsUpdate` snapshot flagged `is_keyframe`, and
+  replay (server has no replay path; `Playback.jsx` + the verification
+  scripts do) must reset to a fresh `Y.Doc` at every keyframe row. This was
+  found empirically: a log without keyframes replays to an *empty* document
+  (Yjs silently parks updates whose dependencies are missing).
+- **`yjs_updates` ordering rides on BIGSERIAL**, and flushes are chained
+  per-room (`flushChains` in `collabServer.js`) precisely so overlapping
+  batch INSERTs can't interleave id assignment. Don't parallelize them.
+- **Session end is two distinct states.** `ended_at` (POST `/rooms/:id/end`)
+  locks the room (onAuthenticate rejects, live connections kicked via
+  `closeConnections`, `getRoomAccess` blocks run/tests) but keeps it on the
+  dashboard for playback; `active=false` (DELETE) hides it forever. The
+  dashboard's "ended" state is `ended_at` OR a read-time derivation (idle
+  >12h and 0 participants) that stamps nothing - joining an idle room
+  revives it, deliberately.
+- **`/playback/:id` must stay outside `/room/`** in both react-router and
+  nginx terms: `location /room/` is Basic-Auth-exempt for candidates, so a
+  playback path under it would leak the replay UI shell to anyone with a
+  room link (the API itself would still 401, but don't rely on one layer).
 
 ## Working conventions specific to this project
 

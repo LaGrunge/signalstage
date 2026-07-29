@@ -53,6 +53,21 @@ frontend (nginx, static React build)
   text selection (colored highlight) live, via `y-monaco`'s awareness
   decorations — `CollabEditor.jsx` generates the actual colors/labels/CSS
   itself, since `y-monaco` only assigns bare classNames and renders nothing.
+- Every session is **recorded for playback**: the raw Yjs update stream
+  (keystroke granularity, attributed to the participant who typed) is
+  appended to `yjs_updates`, participant joins/leaves land in `room_events`,
+  and every code run / test run is already in `submissions`/`test_runs`.
+  The interviewer ends a session explicitly ("End session" in the room
+  header or on the dashboard card — the candidate is disconnected and the
+  room locks, distinct from "Delete" which hides the room), then replays it
+  at `/playback/<id>`: a read-only Monaco scrubs through the typing like a
+  video, with speed control (1x–8x), idle gaps compressed to 3s, and
+  clickable timeline markers for runs (with their output), test attempts
+  (colored by pass/fail), and joins/leaves. Rooms idle for 12h with nobody
+  connected count as ended on the dashboard automatically. Recording
+  durability matches the code snapshot: updates buffer in memory for ≤3s
+  before hitting Postgres, so an ungraceful api crash can lose at most the
+  last ~3s of typing.
 - Interviewers can also build **problems** (Dashboard's "Problem bank"):
   a title, a markdown-ish description, per-language starter code, one or
   more reference solutions (authoring-time only), and test cases (public
@@ -473,7 +488,17 @@ on it in a real interview.
   (`rooms.last_code`), but there's still a small window where very recent
   edits aren't persisted yet - for anything mission-critical, consider a
   full Hocuspocus persistence extension instead of relying on the debounce
-  window.
+  window. The playback recording (`yjs_updates`) has the same ≤3s buffer
+  window, by design.
+- Playback storage grows with typing (~1-2 MB per heavy interview hour,
+  row overhead included) and "Delete" is a soft delete that never reclaims
+  it - if the instance runs for years, prune `yjs_updates` for long-dead
+  rooms manually.
+- `/playback/<id>` deliberately lives outside `/room/` so the nginx
+  candidate exemption never covers it: it's behind Basic Auth AND the
+  interviewer JWT; the `GET /api/rooms/:id/playback` payload is exempt
+  from Basic Auth like the rest of `/api/rooms/` and relies on
+  JWT + ownership, same as `/submissions`.
 
 ## Manual testing checklist
 
