@@ -226,9 +226,10 @@ router.get("/:id/problem", async (req, res) => {
   res.json({ ...problem, testCode });
 });
 
-// mode: "run" (public test code only, fast feedback, not persisted) vs
-// "submit" (public AND hidden test code, persisted to test_runs). Mirrors
-// the run_enabled gate exactly, but on tests_enabled.
+// mode: "run" (public test code only, fast feedback) vs "submit" (public
+// AND hidden test code). Both are persisted to test_runs - submit is the
+// graded attempt, run clicks feed the playback timeline. Mirrors the
+// run_enabled gate exactly, but on tests_enabled.
 router.post("/:id/tests", optionalAuth, async (req, res) => {
   const { code, mode, submittedBy } = req.body || {};
   if (mode !== "run" && mode !== "submit") {
@@ -267,13 +268,13 @@ router.post("/:id/tests", optionalAuth, async (req, res) => {
     });
     const passedCount = results.filter((r) => r.passed).length;
 
-    if (mode === "submit") {
-      await pool.query(
-        `INSERT INTO test_runs (room_id, code, mode, results, passed_count, total_count, submitted_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [req.params.id, code, mode, JSON.stringify(results), passedCount, results.length, submittedBy || "Anonymous"]
-      );
-    }
+    // Every mode is persisted: "submit" is the graded attempt, but "run"
+    // clicks are timeline markers for session playback too.
+    await pool.query(
+      `INSERT INTO test_runs (room_id, code, mode, results, passed_count, total_count, submitted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.params.id, code, mode, JSON.stringify(results), passedCount, results.length, submittedBy || "Anonymous"]
+    );
 
     // Redact hidden-case detail for non-owners - only name + pass/fail
     // survive; the failure message could leak the intended answer.
@@ -294,6 +295,86 @@ router.post("/:id/tests", optionalAuth, async (req, res) => {
     console.error("run tests failed:", err.response?.data || err.message);
     res.status(502).json({ error: "test execution backend unavailable" });
   }
+});
+
+// Everything the playback page needs in one shot: the ordered Yjs update
+// log (base64, keyframe rows reset the replay doc - see 011_playback.sql)
+// plus all timeline events (participant joins/leaves, code runs, test runs)
+// merged and sorted. Interviewer-only, same ownership model as
+// /submissions; deliberately does NOT filter on active/ended - ended and
+// even ongoing sessions are replayable.
+router.get("/:id/playback", requireAuth, async (req, res) => {
+  const { rows: roomRows } = await pool.query(
+    `SELECT title, language, created_at AS "createdAt", ended_at AS "endedAt", last_code AS "lastCode"
+     FROM rooms WHERE id = $1 AND created_by = $2`,
+    [req.params.id, req.user.sub]
+  );
+  if (!roomRows[0]) return res.status(404).json({ error: "room not found" });
+
+  const UPDATE_LIMIT = 200000;
+  const [updates, submissions, testRuns, roomEvents] = await Promise.all([
+    pool.query(
+      `SELECT actor, update, is_keyframe AS k, created_at
+       FROM yjs_updates WHERE room_id = $1 ORDER BY id LIMIT ${UPDATE_LIMIT}`,
+      [req.params.id]
+    ),
+    pool.query(
+      `SELECT id, language, status, stdout, stderr, compile_output, code, submitted_by, created_at
+       FROM submissions WHERE room_id = $1 ORDER BY created_at`,
+      [req.params.id]
+    ),
+    pool.query(
+      `SELECT mode, results, passed_count, total_count, submitted_by, created_at
+       FROM test_runs WHERE room_id = $1 ORDER BY created_at`,
+      [req.params.id]
+    ),
+    pool.query(
+      `SELECT kind, actor, created_at FROM room_events WHERE room_id = $1 ORDER BY created_at`,
+      [req.params.id]
+    ),
+  ]);
+
+  const events = [
+    ...roomEvents.rows.map((e) => ({
+      t: e.created_at.getTime(),
+      kind: e.kind, // 'join' | 'leave' | 'ended'
+      actor: e.actor,
+    })),
+    ...submissions.rows.map((s) => ({
+      t: s.created_at.getTime(),
+      kind: "run",
+      actor: s.submitted_by,
+      status: s.status,
+      stdout: s.stdout,
+      stderr: s.stderr,
+      compileOutput: s.compile_output,
+      code: s.code,
+      language: s.language,
+    })),
+    ...testRuns.rows.map((tr) => ({
+      t: tr.created_at.getTime(),
+      kind: tr.mode === "submit" ? "test_submit" : "test_run",
+      actor: tr.submitted_by,
+      passedCount: tr.passed_count,
+      totalCount: tr.total_count,
+      results: tr.results,
+    })),
+  ].sort((a, b) => a.t - b.t);
+
+  res.json({
+    meta: {
+      ...roomRows[0],
+      updateCount: updates.rows.length,
+      truncated: updates.rows.length === UPDATE_LIMIT,
+    },
+    updates: updates.rows.map((u) => ({
+      t: u.created_at.getTime(),
+      a: u.actor,
+      k: u.k || undefined,
+      u: u.update.toString("base64"),
+    })),
+    events,
+  });
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {

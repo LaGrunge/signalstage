@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { runMigrations } from "./db.js";
 import { router as authRouter } from "./auth.js";
 import { router as roomsRouter } from "./rooms.js";
@@ -18,6 +19,9 @@ await runMigrations();
 
 const app = express();
 app.use(cors());
+// Mostly for GET /rooms/:id/playback, whose base64 update log compresses
+// ~3x - but every JSON endpoint benefits.
+app.use(compression());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
