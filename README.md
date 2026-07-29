@@ -161,9 +161,10 @@ all straightforward CRUD in `server/src/problems.js`, nothing sandbox-related.
 cp .env.example .env         # fill in real secrets
 vim .env
 
-# nginx Basic Auth gate for the whole site - required, docker compose won't
-# start frontend without this file present (see "Security and production
-# checklist" below for why this exists and how it interacts with app auth)
+# nginx Basic Auth gate for the interviewer surface (candidates only need
+# their /room/<uuid> link) - required, docker compose won't start frontend
+# without this file present (see "Security and production checklist" below
+# for exactly what is and isn't behind the gate)
 htpasswd -c frontend/.htpasswd yourusername   # from apache2-utils; or:
 # docker run --rm httpd:2.4-alpine htpasswd -Bbn yourusername yourpassword > frontend/.htpasswd
 
@@ -429,11 +430,23 @@ on it in a real interview.
 
 ## Security and production checklist
 
-- **nginx enforces HTTP Basic Auth on the whole site** (`frontend/nginx.conf`)
-  — a single shared gate for anyone reaching this host at all, independent of
-  the app's own per-interviewer login and per-room candidate link. Both
-  interviewer and candidate need the shared Basic Auth credentials *and*
-  their normal room link/login to get in. The credential file
+- **nginx enforces HTTP Basic Auth on the interviewer surface**
+  (`frontend/nginx.conf`) — a shared gate independent of the app's own
+  per-interviewer login, covering page load (`/`, `/login`, `/register`,
+  `/dashboard`, `/problems`), `/api/auth/*` (so nobody can self-register),
+  `/api/templates/*`, `/api/problems/*`, and bare `/api/rooms`
+  (create/list). The candidate path is deliberately exempt (`auth_basic
+  off;` blocks in the config): `/room/<uuid>` plus exactly the endpoints
+  that page needs as a guest — `/api/rooms/<id>[...]`, `/api/execute`,
+  `/api/languages`, the `/collab` websocket, `/assets/*`, and `/lsp/*` —
+  so a candidate needs only their room link, never the Basic Auth
+  password. App-layer auth still guards everything exempted: the room
+  UUID is the bearer secret, mutating room routes require a JWT, and
+  run/tests are gated per-room by the interviewer's toggles. Known gap:
+  the `/lsp` bridge has no app-layer auth of its own yet, so exempting it
+  leaves the language servers reachable by anyone who finds the host —
+  acceptable on an isolated box, but the follow-up is a `?room=<uuid>`
+  check in `lsp/bridge.js`. The credential file
   (`frontend/.htpasswd`) is git-ignored and lives only on the deploy host,
   like `.env` — generate it with `htpasswd -c frontend/.htpasswd <user>` (or
   the Docker one-liner in "Quick start") before `docker compose up`, since

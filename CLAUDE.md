@@ -47,12 +47,27 @@ me hit this."
   file (it's a password hash, not a template to fill in) — `docker compose
   up` for `frontend` will refuse to start without it since it's bind-mounted;
   see README "Security and production checklist" for how to generate one.
-- nginx enforces a site-wide HTTP Basic Auth gate (`frontend/nginx.conf`),
-  which forced the app's own JWT off the `Authorization` header (both would
-  otherwise collide on the same header) and onto a custom
-  `X-SignalStage-Token` header — see `server/src/auth.js` and
-  `frontend/src/lib/api.js`. Don't move it back onto `Authorization` while
-  this gate exists.
+- nginx enforces an HTTP Basic Auth gate on the interviewer surface
+  (`frontend/nginx.conf`) — page load, login/register, `/api/auth/*`,
+  templates/problems APIs, bare `/api/rooms`. The candidate path is
+  deliberately exempt via `auth_basic off;` blocks (`/room/<uuid>` page,
+  `/assets/*`, room-scoped `/api/rooms/<id>...`, `/api/execute`,
+  `/api/languages`, `/collab`, `/lsp`) so candidates need only their room
+  link, never the Basic Auth password — the room UUID is the bearer secret
+  and app-layer JWT/toggles guard everything else. Two nginx traps already
+  hit while building this, don't reintroduce them: `try_files $uri
+  /index.html` inside an exempt location internally redirects to
+  `location /` where auth is back on (use `try_files /index.html =404;`);
+  and without the exact-match `location = /api/rooms` block, the prefix
+  location `/api/rooms/` makes nginx 301 bare `/api/rooms` to add the
+  slash, which both skips Basic Auth and turns the dashboard's POST
+  (create room) into a GET. `/lsp` is exempt with no app-layer auth of its
+  own yet (accepted: isolated box; follow-up: `?room=<uuid>` validation in
+  `lsp/bridge.js`). The gate also forced the app's own JWT off the
+  `Authorization` header (both would otherwise collide on the same header)
+  and onto a custom `X-SignalStage-Token` header — see `server/src/auth.js`
+  and `frontend/src/lib/api.js`. Don't move it back onto `Authorization`
+  while this gate exists.
 
 ## The Judge0 sandbox saga (read before touching `judge0/`)
 
