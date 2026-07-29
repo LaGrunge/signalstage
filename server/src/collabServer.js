@@ -1,7 +1,69 @@
 import { Server } from "@hocuspocus/server";
+import * as Y from "yjs";
 import { pool, roomExists, getRoomInitialCode } from "./db.js";
 
 let hocuspocusServer = null;
+
+// Playback recording buffer: documentName -> [{ts, actor, update: Buffer}].
+// onChange fires per editor transaction (keystroke-ish), so rows are
+// buffered here and flushed in one multi-row INSERT every FLUSH_MS (and
+// right before a document unloads). Crash tolerance: an ungraceful kill
+// loses at most FLUSH_MS of keystrokes - same durability class as the
+// debounced rooms.last_code snapshot, accepted for this product.
+const updateBuffers = new Map();
+const FLUSH_MS = 3000;
+
+// Per-room promise chain: yjs_updates ordering rides on BIGSERIAL ids, so
+// two overlapping flushes of the same room (a slow INSERT still in flight
+// when the next interval fires) must not race each other's id assignment.
+const flushChains = new Map();
+
+function flushRoom(documentName) {
+  const chained = (flushChains.get(documentName) ?? Promise.resolve()).then(async () => {
+    const buffered = updateBuffers.get(documentName);
+    if (!buffered || buffered.length === 0) return;
+    updateBuffers.set(documentName, []);
+    try {
+      await pool.query(
+        `INSERT INTO yjs_updates (room_id, actor, update, is_keyframe, created_at)
+         SELECT $1, a, u, k, t
+         FROM unnest($2::text[], $3::bytea[], $4::bool[], $5::timestamptz[]) AS x(a, u, k, t)`,
+        [
+          documentName,
+          buffered.map((b) => b.actor),
+          buffered.map((b) => b.update),
+          buffered.map((b) => Boolean(b.keyframe)),
+          buffered.map((b) => b.ts),
+        ]
+      );
+    } catch (err) {
+      // Drop rather than re-queue: an unreachable DB must not grow the buffer
+      // without bound, and losing a flush window degrades playback, not the
+      // live session.
+      console.error(`playback: dropped ${buffered.length} updates for ${documentName}:`, err.message);
+    }
+  });
+  flushChains.set(documentName, chained);
+  return chained;
+}
+
+function flushAll() {
+  for (const documentName of updateBuffers.keys()) {
+    flushRoom(documentName);
+  }
+}
+
+async function recordRoomEvent(roomId, kind, actor) {
+  try {
+    await pool.query("INSERT INTO room_events (room_id, kind, actor) VALUES ($1, $2, $3)", [
+      roomId,
+      kind,
+      actor ?? null,
+    ]);
+  } catch (err) {
+    console.error(`playback: failed to record ${kind} for ${roomId}:`, err.message);
+  }
+}
 
 export function startCollabServer() {
   const server = Server.configure({
@@ -29,6 +91,22 @@ export function startCollabServer() {
       if (initialCode && ytext.length === 0) {
         ytext.insert(0, initialCode);
       }
+      // Playback keyframe: full state snapshot at (re)load time. Client
+      // updates causally depend on the seed insert above (which onChange
+      // never sees), and every unload+reload starts a fresh Yjs history -
+      // replay must reset to a fresh Y.Doc at each keyframe, so recording
+      // one per load is what keeps multi-segment sessions replayable.
+      let buffered = updateBuffers.get(documentName);
+      if (!buffered) {
+        buffered = [];
+        updateBuffers.set(documentName, buffered);
+      }
+      buffered.push({
+        ts: new Date(),
+        actor: null,
+        update: Buffer.from(Y.encodeStateAsUpdate(document)),
+        keyframe: true,
+      });
       return document;
     },
 
@@ -45,10 +123,39 @@ export function startCollabServer() {
         [documentName, code]
       );
     },
+
+    // Playback recording: buffer every Yjs update with its capture time and
+    // author (context is whatever onAuthenticate returned - {name}). The
+    // onLoadDocument template seed above also lands here (actor null, since
+    // it's a server-local transaction) - deliberately recorded, so playback
+    // opens with the template appearing exactly like the session did.
+    async onChange({ documentName, context, update }) {
+      let buffered = updateBuffers.get(documentName);
+      if (!buffered) {
+        buffered = [];
+        updateBuffers.set(documentName, buffered);
+      }
+      buffered.push({ ts: new Date(), actor: context?.name ?? null, update: Buffer.from(update) });
+    },
+
+    async connected({ documentName, context }) {
+      await recordRoomEvent(documentName, "join", context?.name);
+    },
+
+    async onDisconnect({ documentName, context }) {
+      await recordRoomEvent(documentName, "leave", context?.name);
+    },
+
+    async beforeUnloadDocument({ documentName }) {
+      await flushRoom(documentName);
+      updateBuffers.delete(documentName);
+      flushChains.delete(documentName);
+    },
   });
 
   server.listen();
   hocuspocusServer = server;
+  setInterval(flushAll, FLUSH_MS);
   console.log(`Hocuspocus collab server listening on :${process.env.COLLAB_PORT || 1234}`);
   return server;
 }
