@@ -39,6 +39,7 @@ export default function Room() {
   const [testsRunning, setTestsRunning] = useState(false);
   const [taskOpen, setTaskOpen] = useState(true);
   const [resultsTab, setResultsTab] = useState("output"); // "output" | "tests"
+  const [ended, setEnded] = useState(false);
 
   // Templates/versions/the run-permission toggle are the interviewer's own
   // tools - gated on actually owning *this* room (created_by), not just on
@@ -88,6 +89,7 @@ export default function Room() {
         setLanguage(data.language);
         setRunEnabled(data.runEnabled ?? true);
         setTestsEnabled(data.testsEnabled ?? true);
+        if (data.endedAt) setEnded(true);
         const loggedInUser = getUser();
         if (loggedInUser && loggedInUser.id === data.createdBy) {
           refreshTemplates();
@@ -108,12 +110,25 @@ export default function Room() {
   const ydoc = useMemo(() => new Y.Doc(), [roomId]);
   const provider = useMemo(() => {
     if (!userName) return null;
+    // If the server drops or refuses us, the likely cause is the interviewer
+    // ending the session (closeConnections kick / onAuthenticate rejection) -
+    // refetch the room and switch to the "session ended" screen instead of
+    // spinning in "connecting…" forever.
+    const checkEnded = () =>
+      api
+        .get(`/rooms/${roomId}`)
+        .then(({ data }) => {
+          if (data.endedAt) setEnded(true);
+        })
+        .catch(() => {});
     return new HocuspocusProvider({
       url: collabUrl(),
       name: roomId,
       document: ydoc,
       token: userName,
       onStatus: ({ status }) => setConnected(status === "connected"),
+      onClose: checkEnded,
+      onAuthenticationFailed: checkEnded,
     });
   }, [roomId, userName, ydoc]);
 
@@ -307,8 +322,33 @@ export default function Room() {
     }
   }
 
+  async function endSession() {
+    if (!window.confirm("End this session? The candidate will be disconnected and the room locked.")) {
+      return;
+    }
+    try {
+      await api.post(`/rooms/${roomId}/end`);
+      navigate(`/playback/${roomId}`);
+    } catch {
+      window.alert("Failed to end the session");
+    }
+  }
+
   if (notFound) return <div className="center-message">Session not found or closed.</div>;
   if (!room) return <div className="center-message">Loading…</div>;
+
+  if (ended) {
+    return (
+      <div className="center-message">
+        <div>
+          <p>This session has ended.</p>
+          {isInterviewer && (
+            <button onClick={() => navigate(`/playback/${roomId}`)}>▶ Watch playback</button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (!userName) {
     return (
@@ -366,6 +406,11 @@ export default function Room() {
           <span className="muted running-banner">
             {runningOthers.map((p) => p.name).join(", ")} running code…
           </span>
+        )}
+        {isInterviewer && (
+          <button className="link" onClick={endSession} title="Lock the session for the candidate and open playback">
+            ⏹ End session
+          </button>
         )}
         {isInterviewer && (
           <button className="link" onClick={toggleRunEnabled}>

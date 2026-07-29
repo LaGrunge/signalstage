@@ -160,6 +160,13 @@ export function startCollabServer() {
   return server;
 }
 
+// Kicks every live websocket connection of a room - used by POST
+// /rooms/:id/end so an ended session doesn't keep already-connected
+// participants editing (onAuthenticate only guards NEW connections).
+export function closeRoomConnections(roomId) {
+  hocuspocusServer?.closeConnections(roomId);
+}
+
 // Returns the live in-memory Y.Doc for a room if Hocuspocus currently has it
 // loaded (i.e. someone has connected to it since this process started), so
 // dashboard card previews can reflect real-time content rather than only the

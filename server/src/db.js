@@ -36,8 +36,14 @@ export async function runMigrations() {
   }
 }
 
+// "Joinable" is the real semantic: sole caller is the collab server's
+// onAuthenticate, and ended sessions must reject (re)connections just like
+// deleted ones.
 export async function roomExists(roomId) {
-  const { rows } = await pool.query("SELECT 1 FROM rooms WHERE id = $1 AND active = true", [roomId]);
+  const { rows } = await pool.query(
+    "SELECT 1 FROM rooms WHERE id = $1 AND active = true AND ended_at IS NULL",
+    [roomId]
+  );
   return rows.length > 0;
 }
 

@@ -7,7 +7,7 @@ import { pool } from "./db.js";
 export async function getRoomAccess(roomId, userSub) {
   const { rows } = await pool.query(
     `SELECT created_by, language, run_enabled, tests_enabled, problem_id AS "problemId"
-     FROM rooms WHERE id = $1 AND active = true`,
+     FROM rooms WHERE id = $1 AND active = true AND ended_at IS NULL`,
     [roomId || null]
   );
   const room = rows[0];

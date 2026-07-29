@@ -89,6 +89,15 @@ export default function Dashboard() {
     }
   }
 
+  async function endRoom(id) {
+    try {
+      await api.post(`/rooms/${id}/end`);
+      await loadRooms();
+    } catch {
+      setError("Failed to end session");
+    }
+  }
+
   async function deleteTemplate(id) {
     try {
       await api.delete(`/templates/${id}`);
@@ -195,12 +204,22 @@ export default function Dashboard() {
               title={r.title}
               language={r.language}
               preview={r.preview}
-              footer={`refreshed ${formatRelativeTime(r.last_active_at)}`}
+              footer={
+                r.effectivelyEnded
+                  ? `ended ${formatRelativeTime(r.ended_at || r.last_active_at)}`
+                  : `refreshed ${formatRelativeTime(r.last_active_at)}`
+              }
               participantCount={r.participantCount}
-              onClick={() => navigate(`/room/${r.id}`)}
+              onClick={() => (r.effectivelyEnded ? navigate(`/playback/${r.id}`) : navigate(`/room/${r.id}`))}
               onRename={(newTitle) => renameRoom(r.id, newTitle)}
               actions={[
-                { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
+                { key: "playback", label: "▶ Playback", onClick: () => navigate(`/playback/${r.id}`) },
+                ...(r.effectivelyEnded
+                  ? []
+                  : [
+                      { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
+                      { key: "end", label: "End session", onClick: () => endRoom(r.id) },
+                    ]),
                 { key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) },
               ]}
             />

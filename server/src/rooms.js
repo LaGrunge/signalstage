@@ -2,7 +2,7 @@ import { Router } from "express";
 import { pool } from "./db.js";
 import { requireAuth, optionalAuth } from "./auth.js";
 import { LANGUAGES } from "./judge0.js";
-import { getLiveDocument, getRoomParticipantCount } from "./collabServer.js";
+import { getLiveDocument, getRoomParticipantCount, closeRoomConnections } from "./collabServer.js";
 import { getRoomAccess } from "./roomAccess.js";
 import { runProblemTests } from "./testRunner.js";
 
@@ -10,6 +10,18 @@ export const router = Router();
 
 const LANGUAGE_KEYS = new Set(LANGUAGES.map((l) => l.key));
 const PREVIEW_LENGTH = 400;
+
+// Auto-idle fallback for "session over": a room nobody has touched for this
+// long, with nobody connected, counts as ended for UI purposes (Dashboard
+// badge/actions). Derived at read time - nothing stamps ended_at, so joining
+// such a room simply revives it. Explicit "End session" is the hard state.
+const IDLE_ENDED_MS = 12 * 60 * 60 * 1000;
+
+function effectivelyEnded(room) {
+  if (room.ended_at) return true;
+  const idleMs = Date.now() - new Date(room.last_active_at).getTime();
+  return idleMs > IDLE_ENDED_MS && getRoomParticipantCount(room.id) === 0;
+}
 
 function roomPreview(room) {
   const live = getLiveDocument(room.id);
@@ -61,17 +73,43 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, title, language, active, created_at, last_active_at, initial_code, last_code
+    `SELECT id, title, language, active, created_at, last_active_at, ended_at, initial_code, last_code
      FROM rooms WHERE created_by = $1 AND active = true ORDER BY last_active_at DESC`,
     [req.user.sub]
   );
   res.json(
     rows.map((room) => {
       const preview = roomPreview(room);
+      const ended = effectivelyEnded(room);
       const { initial_code, last_code, ...rest } = room;
-      return { ...rest, preview, participantCount: getRoomParticipantCount(room.id) };
+      return {
+        ...rest,
+        preview,
+        participantCount: getRoomParticipantCount(room.id),
+        effectivelyEnded: ended,
+      };
     })
   );
+});
+
+// Explicitly finish a session: locks the room for the candidate (new collab
+// connections are rejected via roomExists, live ones are kicked) while
+// keeping it on the dashboard for playback - unlike DELETE, which hides the
+// room forever. Idempotent: re-ending keeps the original ended_at.
+router.post("/:id/end", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `UPDATE rooms SET ended_at = COALESCE(ended_at, now())
+     WHERE id = $1 AND created_by = $2
+     RETURNING ended_at AS "endedAt"`,
+    [req.params.id, req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  closeRoomConnections(req.params.id);
+  await pool.query("INSERT INTO room_events (room_id, kind, actor) VALUES ($1, 'ended', $2)", [
+    req.params.id,
+    req.user.email ?? null,
+  ]);
+  res.json(rows[0]);
 });
 
 router.patch("/:id", requireAuth, async (req, res) => {
@@ -133,7 +171,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
 router.get("/:id", async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, title, language, active, created_by AS "createdBy", run_enabled AS "runEnabled",
-            tests_enabled AS "testsEnabled", problem_id AS "problemId"
+            tests_enabled AS "testsEnabled", problem_id AS "problemId", ended_at AS "endedAt"
      FROM rooms WHERE id = $1`,
     [req.params.id]
   );
