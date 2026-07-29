@@ -42,6 +42,15 @@ export async function roomExists(roomId) {
 }
 
 export async function getRoomInitialCode(roomId) {
-  const { rows } = await pool.query("SELECT initial_code FROM rooms WHERE id = $1", [roomId]);
-  return rows[0]?.initial_code || null;
+  // Prefer the last stored snapshot over the original template: Hocuspocus
+  // fires onStoreDocument right before unloading a document, so last_code is
+  // current whenever the doc gets evicted (everyone disconnected, or the
+  // server restarted gracefully). Without this, a reloaded document reseeds
+  // from the template and the session's real code - still safe in last_code -
+  // silently vanishes from the editor.
+  const { rows } = await pool.query(
+    "SELECT COALESCE(NULLIF(last_code, ''), initial_code) AS code FROM rooms WHERE id = $1",
+    [roomId]
+  );
+  return rows[0]?.code || null;
 }

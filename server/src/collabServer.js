@@ -18,9 +18,11 @@ export function startCollabServer() {
 
     // Called once when a document first loads into memory (no persistence
     // extension is configured, so this is always "brand new"). Seed it from
-    // the room's snapshotted template code, if any, before the first client
-    // attaches - guarded on emptiness so a mid-session server restart never
-    // clobbers real candidate code with the original template again.
+    // the room's last stored snapshot (falling back to the template code -
+    // see getRoomInitialCode) before the first client attaches, so a session
+    // where everyone briefly disconnected resumes with its real code instead
+    // of resetting to the template. Guarded on emptiness so a reload never
+    // clobbers a doc that somehow already has content.
     async onLoadDocument({ documentName, document }) {
       const initialCode = await getRoomInitialCode(documentName);
       const ytext = document.getText("code");
