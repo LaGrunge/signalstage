@@ -244,11 +244,21 @@ sandbox-related.
   — a real bug in that package, not this codebase. Monaco still gets SQL
   syntax highlighting, just no diagnostics/completion for that language.
   Revisit if the package gets fixed, or find a different SQL LSP.
-- **No TLS.** The live deployment is plain HTTP behind the isolated VPC.
-  Put Caddy/Traefik/certbot in front of nginx once there's a domain.
-  `navigator.clipboard`-based copy-link already has an `execCommand`
-  fallback for this reason (see `frontend/src/lib/api.js`) — don't remove it
-  when TLS eventually lands unless you're sure every client is HTTPS.
+- ~~No TLS~~ **Done (2026-07-30):** Let's Encrypt cert for
+  `signalstage.duckdns.org` (a free DuckDNS subdomain on the user's
+  account, A-record → 63.182.202.51). nginx serves 443 only; port 80 is
+  ACME webroot + a 301 to the canonical domain (deliberately not `$host` —
+  old plain-IP links redirect onto the name the cert is valid for). The
+  `certbot` compose service renews via the shared webroot volume; the
+  frontend's wrapper `command` reloads nginx every 6h to pick renewals up.
+  First-time issuance on a fresh box is a manual one-shot (README "TLS") —
+  nginx won't start while the cert files are missing, so the renew-only
+  loop can't bootstrap. The EC2 hostname was tried first and is
+  policy-blocked by Let's Encrypt (`*.compute.amazonaws.com` is
+  unissuable); bare-IP certs were an option (GA since 2026-01) but the
+  user picked the domain. The `execCommand` clipboard fallback in
+  `frontend/src/lib/api.js` is still there — keep it until every entry
+  point is confirmed HTTPS-only.
 - **LSP browser-level UX not human-verified.** Protocol-level tests pass
   (real `initialize`, real `didOpen`→`publishDiagnostics`), but nobody has
   actually opened a room and eyeballed a red squiggle or a completion

@@ -483,8 +483,26 @@ on it in a real interview.
   a real reason.
 - Change **every** password/token in `.env` and `judge0/judge0.conf` — the
   `change-me-*` placeholders are not meant for real use.
-- Put TLS in front of nginx (Caddy/Traefik/certbot, etc.) — this stack is
-  built to sit behind your own reverse proxy or run on a private network as-is.
+- **TLS** is built in via Let's Encrypt + certbot: nginx serves the app on
+  443 only (port 80 answers ACME challenges and 301s to the canonical
+  domain, currently `signalstage.duckdns.org` — hardcoded in
+  `frontend/nginx.conf`, change it there if you deploy under another name).
+  The `certbot` compose service renews via the shared webroot volume and the
+  frontend's wrapper command reloads nginx every 6h to pick renewals up.
+  First-time issuance is a one-shot manual step, because nginx refuses to
+  start while the cert files its 443 block references don't exist yet:
+
+  ```bash
+  docker compose stop frontend
+  docker compose run --rm -p 80:80 --entrypoint "" certbot \
+    certbot certonly --standalone -d <your-domain> \
+    --email <you@example.com> --agree-tos --no-eff-email
+  docker compose up -d --build frontend certbot
+  ```
+
+  Note the redirect targets the canonical domain, not `$host`, so old
+  plain-IP links keep working — they land on the domain the cert is valid
+  for.
 - The room link (`/room/<uuid>`) is the candidate's only access secret -
   don't post it anywhere beyond a direct message to that specific candidate.
 - The live Yjs document snapshots to Postgres on Hocuspocus's own debounce

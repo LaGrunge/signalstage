@@ -43,15 +43,35 @@ services:
     build: ./frontend
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./frontend/.htpasswd:/etc/nginx/.htpasswd:ro
+      - certbot_etc:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    # Reload nginx every 6h so certs renewed by the certbot service below get
+    # picked up (nginx reads cert files only at startup/reload). Certs renew
+    # ~30 days before expiry, so the lag is harmless.
+    command: /bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'
     depends_on:
       - api
       - lsp
     restart: always
 
+  # Renews the Let's Encrypt cert via the webroot nginx serves on port 80.
+  # First-time issuance is a one-shot manual run (see README "TLS"): the
+  # frontend won't start without a cert on disk, and this loop only renews.
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_etc:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+    restart: always
+
 volumes:
   signalstage_pgdata:
+  certbot_etc:
+  certbot_webroot:
 
 networks:
   signalstage_net:
