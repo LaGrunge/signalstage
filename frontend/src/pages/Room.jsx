@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as Y from "yjs";
-import { HocuspocusProvider } from "@hocuspocus/provider";
+import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/provider";
 import Ansi from "ansi-to-react";
 import CollabEditor from "../components/CollabEditor.jsx";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
@@ -10,6 +10,20 @@ import { formatRelativeTime } from "../lib/time.js";
 import { highlightCode } from "../lib/highlight.js";
 
 const FILE_EXTENSIONS = { cpp: "cpp", python: "py", go: "go", java: "java", bash: "sh", mariadb: "sql" };
+
+// Dead-link detection budget. A stalled-but-not-closed websocket (wifi drop,
+// mobile network, mid-path proxy) fires no close event; the provider only
+// notices it by silence - no incoming message for messageReconnectTimeout.
+// The library default (30s) means up to half a minute of both sides editing
+// diverged local copies while the header still says "connected". 10s needs
+// incoming traffic more frequent than that even in an idle room, which the
+// awareness heartbeat below guarantees (Hocuspocus echoes every awareness
+// update back to its sender).
+const MESSAGE_RECONNECT_TIMEOUT_MS = 10000;
+const HEARTBEAT_MS = 4000;
+// A peer whose heartbeat hasn't arrived for ~3 beats is flagged as possibly
+// offline well before awareness's own 30s removal kicks in.
+const PEER_STALE_MS = 13000;
 
 export default function Room() {
   const { id: roomId } = useParams();
@@ -25,6 +39,7 @@ export default function Room() {
   const [running, setRunning] = useState(false);
   const [connected, setConnected] = useState(false);
   const [participants, setParticipants] = useState([]);
+  const [staleClientIds, setStaleClientIds] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [submissions, setSubmissions] = useState([]);
@@ -50,6 +65,7 @@ export default function Room() {
   const runAllowedForMe = isInterviewer || runEnabled;
   const testsAllowedForMe = isInterviewer || testsEnabled;
   const runningOthers = participants.filter((p) => p.running && p.name !== userName);
+  const staleParticipants = participants.filter((p) => staleClientIds.includes(p.clientId));
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
   const sharedTemplates = templates.filter((t) => t.shared);
 
@@ -108,6 +124,10 @@ export default function Room() {
   }, [roomId]);
 
   const ydoc = useMemo(() => new Y.Doc(), [roomId]);
+  // Whether this tab has ever reached "connected" - gates the connection-lost
+  // banner so it doesn't flash during the initial handshake. A ref, not
+  // state: it only ever flips alongside a setConnected that rerenders anyway.
+  const everConnectedRef = useRef(false);
   const provider = useMemo(() => {
     if (!userName) return null;
     // If the server drops or refuses us, the likely cause is the interviewer
@@ -121,12 +141,23 @@ export default function Room() {
           if (data.endedAt) setEnded(true);
         })
         .catch(() => {});
-    return new HocuspocusProvider({
+    // Constructed explicitly instead of passing url straight to the provider:
+    // HocuspocusProvider only forwards url/connect/parameters to its internal
+    // websocket, so messageReconnectTimeout would be silently ignored.
+    const socket = new HocuspocusProviderWebsocket({
       url: collabUrl(),
+      messageReconnectTimeout: MESSAGE_RECONNECT_TIMEOUT_MS,
+    });
+    return new HocuspocusProvider({
+      websocketProvider: socket,
       name: roomId,
       document: ydoc,
       token: userName,
-      onStatus: ({ status }) => setConnected(status === "connected"),
+      onStatus: ({ status }) => {
+        const ok = status === "connected";
+        if (ok) everConnectedRef.current = true;
+        setConnected(ok);
+      },
       onClose: checkEnded,
       onAuthenticationFailed: checkEnded,
     });
@@ -162,7 +193,62 @@ export default function Room() {
     return () => awareness.off("change", updateParticipants);
   }, [provider]);
 
-  useEffect(() => () => provider?.destroy(), [provider]);
+  useEffect(
+    () => () => {
+      // provider.destroy() only detaches from the websocket provider we
+      // constructed above; destroy it explicitly or its reconnect loop and
+      // connection checker keep running against a dead room.
+      const socket = provider?.configuration.websocketProvider;
+      provider?.destroy();
+      socket?.destroy();
+    },
+    [provider]
+  );
+
+  // Awareness heartbeat. Two jobs: (1) guarantees incoming traffic more often
+  // than MESSAGE_RECONNECT_TIMEOUT_MS even when nobody is typing (the server
+  // echoes awareness updates back to the sender), so a dead link is actually
+  // detected within ~10s; (2) gives peers a fresh "last seen" signal for the
+  // stale-participant warning below.
+  useEffect(() => {
+    if (!provider) return;
+    const timer = setInterval(() => provider.setAwarenessField("heartbeat", Date.now()), HEARTBEAT_MS);
+    return () => clearInterval(timer);
+  }, [provider]);
+
+  // Flag peers whose awareness has gone quiet: their link is probably dead
+  // (their own tab will notice within MESSAGE_RECONNECT_TIMEOUT_MS, but WE
+  // would otherwise keep editing "with" them for up to awareness's 30s
+  // removal timeout without a hint that nothing is coming through).
+  useEffect(() => {
+    if (!provider) return;
+    const { awareness } = provider;
+    const lastSeen = new Map();
+    const onUpdate = ({ added, updated }) => {
+      const now = Date.now();
+      for (const clientId of [...added, ...updated]) lastSeen.set(clientId, now);
+    };
+    const check = () => {
+      const now = Date.now();
+      const stale = [];
+      awareness.getStates().forEach((state, clientId) => {
+        if (clientId === awareness.clientID || !state.user) return;
+        if (!lastSeen.has(clientId)) lastSeen.set(clientId, now);
+        if (now - lastSeen.get(clientId) > PEER_STALE_MS) stale.push(clientId);
+      });
+      stale.sort();
+      // Compare before setting: this runs on a timer, and re-setting an
+      // unchanged array would rerender the whole room every tick.
+      setStaleClientIds((prev) => (prev.join() === stale.join() ? prev : stale));
+    };
+    awareness.on("update", onUpdate);
+    const timer = setInterval(check, 3000);
+    return () => {
+      awareness.off("update", onUpdate);
+      clearInterval(timer);
+      setStaleClientIds([]);
+    };
+  }, [provider]);
 
   function saveCode() {
     const code = ydoc.getText("code").toString();
@@ -394,9 +480,15 @@ export default function Room() {
           {participants.map((p) => (
             <span
               key={p.clientId}
-              className={`participant-badge ${p.running ? "running" : ""}`}
+              className={`participant-badge ${p.running ? "running" : ""} ${staleClientIds.includes(p.clientId) ? "stale" : ""}`}
               style={{ backgroundColor: p.color }}
-              title={p.running ? `${p.name} is running code…` : p.name}
+              title={
+                staleClientIds.includes(p.clientId)
+                  ? `${p.name} appears to be offline`
+                  : p.running
+                    ? `${p.name} is running code…`
+                    : p.name
+              }
             >
               {initials(p.name)}
             </span>
@@ -454,6 +546,20 @@ export default function Room() {
           </>
         )}
       </header>
+
+      {!connected && everConnectedRef.current && (
+        <div className="conn-banner lost">
+          ⚠ Connection lost — reconnecting. Edits made now are not visible to the other side until the
+          connection is back.
+        </div>
+      )}
+      {connected && staleParticipants.length > 0 && (
+        <div className="conn-banner stale">
+          ⚠ {staleParticipants.map((p) => p.name).join(", ")}{" "}
+          {staleParticipants.length === 1 ? "appears" : "appear"} to be offline — their edits may not be
+          coming through right now.
+        </div>
+      )}
 
       <div className="room-body">
         {isInterviewer && (

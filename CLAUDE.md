@@ -143,6 +143,28 @@ already bit us here:
   the color formats `isSafeCssColor` allows. If you touch this again, don't
   reintroduce string-suffix alpha tricks on a color of unknown format.
 
+## Connection health (Room.jsx)
+
+Born from a real interview where a flaky link left both sides silently
+editing diverged local copies (Yjs is offline-first; a stalled-but-not-closed
+websocket fires no event). Two coupled mechanisms, don't change one without
+the other:
+
+- `messageReconnectTimeout: 10000` on an explicitly-constructed
+  `HocuspocusProviderWebsocket` — passing it to `HocuspocusProvider` directly
+  is silently ignored (only `url`/`connect`/`parameters` are forwarded to the
+  internal socket).
+- A 4s awareness heartbeat (`setAwarenessField("heartbeat", …)`). The server
+  echoes awareness updates back to their sender, so this guarantees incoming
+  traffic more often than the 10s timeout even in an idle room. **Removing
+  the heartbeat while keeping the 10s timeout makes every idle connection
+  churn through close/reconnect** (awareness's own renewal is only every
+  ~15s). The heartbeat also feeds the peer-staleness banner (13s threshold,
+  vs. awareness's own 30s removal).
+
+The connection-lost banner is gated on `everConnectedRef` so it doesn't flash
+during the initial handshake.
+
 ## Interview problems and automated tests
 
 Problems (`server/src/problems.js`, `server/migrations/008_problems.sql` +
@@ -231,13 +253,14 @@ sandbox-related.
   (real `initialize`, real `didOpen`→`publishDiagnostics`), but nobody has
   actually opened a room and eyeballed a red squiggle or a completion
   dropdown. Do this once before an interview depends on it.
-- **Yjs persistence is a debounced snapshot, not a real persistence
-  extension.** `rooms.last_code` catches up on Hocuspocus's own debounce
-  timer; there's a small window of very recent edits that could be lost on
-  an ungraceful crash. Fine for this product's actual use case (a live
-  interview session), not a general-purpose durability guarantee. The
-  playback recording (`yjs_updates`, 3s in-memory buffer in
-  `collabServer.js`) accepts the same window on purpose.
+- **Yjs persistence is still debounced.** `rooms.ydoc_state` (binary Yjs
+  state, what document reloads restore) and `rooms.last_code` (text, for
+  dashboard previews and as the pre-012 fallback) both catch up on
+  Hocuspocus's own debounce timer; there's a small window of very recent
+  edits that could be lost on an ungraceful crash. Fine for this product's
+  actual use case (a live interview session), not a general-purpose
+  durability guarantee. The playback recording (`yjs_updates`, 3s in-memory
+  buffer in `collabServer.js`) accepts the same window on purpose.
 - **Playback storage is never reclaimed.** `yjs_updates` grows ~1-2 MB per
   heavy interview hour and "Delete" is a soft delete (`active=false`), so
   nothing ever prunes the update log. A real cleanup (hard delete or a
@@ -250,15 +273,18 @@ touching `collabServer.js`, `011_playback.sql`, or `Playback.jsx`:
 
 - **Keyframe rows are load-bearing for replay correctness, not an
   optimization.** Client Yjs updates causally depend on the server-side
-  template/`last_code` seed done inside `onLoadDocument` - which `onChange`
-  never sees - and every Hocuspocus document unload+reload starts a *fresh
-  Yjs history* (no persistence extension), so applying two segments' updates
-  into one `Y.Doc` duplicates the text. Hence every document (re)load
-  records a `Y.encodeStateAsUpdate` snapshot flagged `is_keyframe`, and
-  replay (server has no replay path; `Playback.jsx` + the verification
-  scripts do) must reset to a fresh `Y.Doc` at every keyframe row. This was
-  found empirically: a log without keyframes replays to an *empty* document
-  (Yjs silently parks updates whose dependencies are missing).
+  restore/seed done inside `onLoadDocument` - which `onChange` never sees -
+  so every document (re)load records a `Y.encodeStateAsUpdate` snapshot
+  flagged `is_keyframe`, and replay (server has no replay path;
+  `Playback.jsx` + the verification scripts do) must reset to a fresh
+  `Y.Doc` at every keyframe row. Since 012, reloads restore
+  `rooms.ydoc_state`, so the history is usually *continuous* across
+  segments - but keep the reset-at-keyframe contract: pre-012 recordings
+  contain fresh-history segments (that's where "two segments' updates into
+  one Y.Doc duplicates the text" was found empirically), and the text-seed
+  fallback for never-stored rooms still creates one. A log without
+  keyframes replays to an *empty* document (Yjs silently parks updates
+  whose dependencies are missing).
 - **`yjs_updates` ordering rides on BIGSERIAL**, and flushes are chained
   per-room (`flushChains` in `collabServer.js`) precisely so overlapping
   batch INSERTs can't interleave id assignment. Don't parallelize them.
