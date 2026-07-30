@@ -30,10 +30,13 @@ frontend (nginx, static React build)
   opens the link with no account, picks a display name, and lands in the same
   document.
 - Collaborative editing is a Yjs CRDT document per room, synced via
-  Hocuspocus. The live document lives in the `api` process's memory; its text
-  is also snapshotted to Postgres on Hocuspocus's own debounce (`rooms.last_code`)
-  so dashboard previews and freshly-reconnecting clients survive a container
-  restart, not just an active connection.
+  Hocuspocus. The live document lives in the `api` process's memory; on
+  Hocuspocus's own debounce it is snapshotted to Postgres both as plain text
+  (`rooms.last_code`, for dashboard previews) and as the binary Yjs state
+  (`rooms.ydoc_state`). The binary state is what a document reload restores,
+  which keeps the Yjs history continuous across unloads/restarts — a browser
+  tab that kept its local document through a disconnect merges cleanly on
+  reconnect instead of duplicating the text against a freshly reseeded copy.
 - Code execution is a separate self-hosted Judge0 stack (`judge0/`), rebuilt
   on Ubuntu 26.04 rather than upstream's Debian-buster image — see "Ubuntu
   26.04 vs. Debian buster" below for why, and for the several sandbox-specific
@@ -485,11 +488,10 @@ on it in a real interview.
 - The room link (`/room/<uuid>`) is the candidate's only access secret -
   don't post it anywhere beyond a direct message to that specific candidate.
 - The live Yjs document snapshots to Postgres on Hocuspocus's own debounce
-  (`rooms.last_code`), but there's still a small window where very recent
-  edits aren't persisted yet - for anything mission-critical, consider a
-  full Hocuspocus persistence extension instead of relying on the debounce
-  window. The playback recording (`yjs_updates`) has the same ≤3s buffer
-  window, by design.
+  (`rooms.last_code` + `rooms.ydoc_state`), so there's still a small window
+  where very recent edits aren't persisted yet and would be lost on an
+  ungraceful crash. The playback recording (`yjs_updates`) has the same ≤3s
+  buffer window, by design.
 - Playback storage grows with typing (~1-2 MB per heavy interview hour,
   row overhead included) and "Delete" is a soft delete that never reclaims
   it - if the instance runs for years, prune `yjs_updates` for long-dead

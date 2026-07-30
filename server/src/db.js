@@ -47,16 +47,17 @@ export async function roomExists(roomId) {
   return rows.length > 0;
 }
 
-export async function getRoomInitialCode(roomId) {
-  // Prefer the last stored snapshot over the original template: Hocuspocus
-  // fires onStoreDocument right before unloading a document, so last_code is
-  // current whenever the doc gets evicted (everyone disconnected, or the
-  // server restarted gracefully). Without this, a reloaded document reseeds
-  // from the template and the session's real code - still safe in last_code -
-  // silently vanishes from the editor.
+export async function getRoomDocState(roomId) {
+  // state is the binary Yjs snapshot written by onStoreDocument - the
+  // preferred restore path, because applying it reproduces the *same* Yjs
+  // history and reconnecting clients that kept their local Y.Doc merge
+  // cleanly. code is the text fallback for rooms that predate ydoc_state
+  // (or have never stored yet): last stored snapshot over the original
+  // template, since Hocuspocus fires onStoreDocument right before unloading
+  // a document, so last_code is current whenever the doc gets evicted.
   const { rows } = await pool.query(
-    "SELECT COALESCE(NULLIF(last_code, ''), initial_code) AS code FROM rooms WHERE id = $1",
+    "SELECT ydoc_state AS state, COALESCE(NULLIF(last_code, ''), initial_code) AS code FROM rooms WHERE id = $1",
     [roomId]
   );
-  return rows[0]?.code || null;
+  return { state: rows[0]?.state || null, code: rows[0]?.code || null };
 }

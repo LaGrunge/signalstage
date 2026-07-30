@@ -1,6 +1,6 @@
 import { Server } from "@hocuspocus/server";
 import * as Y from "yjs";
-import { pool, roomExists, getRoomInitialCode } from "./db.js";
+import { pool, roomExists, getRoomDocState } from "./db.js";
 
 let hocuspocusServer = null;
 
@@ -78,24 +78,29 @@ export function startCollabServer() {
       return { name: token || "Anonymous" };
     },
 
-    // Called once when a document first loads into memory (no persistence
-    // extension is configured, so this is always "brand new"). Seed it from
-    // the room's last stored snapshot (falling back to the template code -
-    // see getRoomInitialCode) before the first client attaches, so a session
-    // where everyone briefly disconnected resumes with its real code instead
-    // of resetting to the template. Guarded on emptiness so a reload never
-    // clobbers a doc that somehow already has content.
+    // Called once when a document first loads into memory. Restore the
+    // binary Yjs state written by onStoreDocument - applying it reproduces
+    // the *same* Yjs history the previous load had, so a browser tab that
+    // kept its local Y.Doc across a full disconnect (both peers dropped,
+    // server restarted) merges cleanly on reconnect. Seeding plain text
+    // instead (the pre-012 behavior, kept as the fallback for rooms that
+    // have never stored) creates a fresh history that a retained client doc
+    // merges with as an independent insert - i.e. the text duplicates.
     async onLoadDocument({ documentName, document }) {
-      const initialCode = await getRoomInitialCode(documentName);
+      const { state, code } = await getRoomDocState(documentName);
       const ytext = document.getText("code");
-      if (initialCode && ytext.length === 0) {
-        ytext.insert(0, initialCode);
+      if (state) {
+        Y.applyUpdate(document, state);
+      } else if (code && ytext.length === 0) {
+        ytext.insert(0, code);
       }
       // Playback keyframe: full state snapshot at (re)load time. Client
-      // updates causally depend on the seed insert above (which onChange
-      // never sees), and every unload+reload starts a fresh Yjs history -
-      // replay must reset to a fresh Y.Doc at each keyframe, so recording
-      // one per load is what keeps multi-segment sessions replayable.
+      // updates causally depend on the restore/seed above (which onChange
+      // never sees), so replay resets to a fresh Y.Doc at each keyframe.
+      // With ydoc_state restores the history is now continuous across
+      // segments, but keyframes stay load-bearing: pre-012 recordings have
+      // fresh-history segments, and the text-seed fallback still creates
+      // one, so the replay contract (reset at keyframe) is unchanged.
       let buffered = updateBuffers.get(documentName);
       if (!buffered) {
         buffered = [];
@@ -118,9 +123,13 @@ export function startCollabServer() {
     // and Hocuspocus has evicted the live document).
     async onStoreDocument({ documentName, document }) {
       const code = document.getText("code").toString();
+      // ydoc_state is the binary twin of last_code: same debounce cadence,
+      // but it's what onLoadDocument actually restores from (last_code stays
+      // for dashboard previews and as the fallback for pre-012 rooms).
+      const state = Buffer.from(Y.encodeStateAsUpdate(document));
       await pool.query(
-        "UPDATE rooms SET last_active_at = now(), last_code = $2 WHERE id = $1",
-        [documentName, code]
+        "UPDATE rooms SET last_active_at = now(), last_code = $2, ydoc_state = $3 WHERE id = $1",
+        [documentName, code, state]
       );
     },
 
