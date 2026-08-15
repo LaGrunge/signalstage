@@ -286,7 +286,15 @@ export default function Room() {
     };
   }, [provider]);
 
+  // Saving downloads the whole file, which is copying the code by another
+  // name - so it follows the same switch, for the candidate side only.
+  const saveAllowedForMe = isInterviewer || !copyPasteBlocked;
+
   function saveCode() {
+    if (!saveAllowedForMe) {
+      setClipboardNotice("save");
+      return;
+    }
     const code = ydoc.getText("code").toString();
     const ext = FILE_EXTENSIONS[language] || "txt";
     const filename = `${(room?.title || "code").replace(/[^a-z0-9-_]+/gi, "_")}.${ext}`;
@@ -308,13 +316,15 @@ export default function Room() {
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        // Still prevented even when saving is off, or the browser's own
+        // "Save page" dialog takes over - which downloads the code anyway.
         e.preventDefault();
         saveCode();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [roomId, ydoc]);
+  }, [roomId, ydoc, saveAllowedForMe]);
 
   function changeLanguage(lang) {
     ydoc.getMap("config").set("language", lang);
@@ -572,7 +582,11 @@ export default function Room() {
             </option>
           ))}
         </select>
-        <button onClick={saveCode} title="Download code as a file (Ctrl+S)">
+        <button
+          onClick={saveCode}
+          disabled={!saveAllowedForMe}
+          title={saveAllowedForMe ? "Download code as a file (Ctrl+S)" : "Saving disabled by interviewer"}
+        >
           {savedAt ? "Saved" : "💾 Save"}
         </button>
         <button onClick={runCode} disabled={running || !runAllowedForMe} title={!runAllowedForMe ? "Run disabled by interviewer" : "Run the code as-is and see raw stdout/stderr"}>
@@ -598,12 +612,8 @@ export default function Room() {
         )}
       </header>
 
-      {copyPasteBlocked && !isInterviewer && (
-        <div className="conn-banner stale">
-          {clipboardNotice
-            ? `⚠ ${clipboardNotice === "paste" ? "Pasting" : "Copying"} is disabled in this session.`
-            : "⚠ Copy and paste are disabled in this session."}
-        </div>
+      {clipboardNotice && (
+        <div className="conn-banner stale">⚠ {CLIPBOARD_NOTICE[clipboardNotice] ?? "That"} is disabled in this session.</div>
       )}
       {!connected && everConnectedRef.current && (
         <div className="conn-banner lost">
@@ -938,6 +948,17 @@ export default function Room() {
     </div>
   );
 }
+
+// What the candidate just tried, phrased for the transient banner - it only
+// shows in reaction to an attempt, so it has to name the attempt.
+const CLIPBOARD_NOTICE = {
+  copy: "Copying",
+  cut: "Cutting",
+  paste: "Pasting",
+  dragstart: "Dragging text out",
+  drop: "Dropping text in",
+  save: "Saving to a file",
+};
 
 function initials(name) {
   const parts = name.trim().split(/\s+/);

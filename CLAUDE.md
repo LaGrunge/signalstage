@@ -380,7 +380,12 @@ the API refuses them independently, the hidden tab is not the boundary.
 `rooms.copy_paste_blocked` (migration `016`) mirrors through the same Yjs
 config map as `run_enabled`, so toggling it lands live and applies to anyone
 joining later. Enforcement is a capture-phase `copy`/`cut`/`paste`/drag
-listener on `document` in `Room.jsx`, candidate-side only. That means a
+listener on `document` in `Room.jsx`, candidate-side only, plus the Save
+button and its Ctrl+S binding - downloading the file is copying the code by
+another name, and Ctrl+S has to stay `preventDefault`ed even when refused or
+the browser's own "Save page" dialog does the job instead. The notice is
+transient, shown only in reaction to an attempt: a permanent banner is one
+more thing for a nervous candidate to read past. That means a
 second window, devtools or a phone camera all still work - it raises the cost
 of pasting in a prepared solution, it does not make it impossible, and the
 banner tells the candidate rather than swallowing the keystroke silently.
