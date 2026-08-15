@@ -8,8 +8,20 @@ import { getRoomAccess } from "./roomAccess.js";
 // not upstream's Debian-buster judge0/compilers) and bakes these language
 // definitions into db/seeds.rb itself, not upstream Judge0 CE's defaults -
 // verify against this instance's own GET /languages if you change either.
+// Judge0's own defaults are 1.5GB / 5s CPU / 10s wall (judge0.conf's
+// MEMORY_LIMIT, CPU_TIME_LIMIT, WALL_TIME_LIMIT); anything below overrides
+// them per language, within judge0.conf's MAX_* ceilings (4GB / 30s / 30s).
+// Note this deployment runs isolate on rlimits, not cgroups (see README's
+// sandbox section), so memory_limit is RLIMIT_AS - address space, not RSS -
+// and a process's own binary/libstdc++/stack eat ~60MB of it before main().
 export const LANGUAGES = [
-  { key: "cpp", label: "C++ (GCC 15, C++26)", judge0Id: 54 },
+  // The shared "query" template (a deliberately naive SQL-engine exercise)
+  // needs ~1.7GB just to build its 3M-row dataset - 3M heap-allocated
+  // 511-char keys - so it died with bad_alloc inside fillData() before a
+  // candidate could get to the actual task. Its brute-force nested loop is
+  // 3e9 string comparisons too, hence the CPU/wall room: the point is to
+  // measure the naive version and then beat it.
+  { key: "cpp", label: "C++ (GCC 15, C++26)", judge0Id: 54, memoryLimit: 3145728, cpuTimeLimit: 15, wallTimeLimit: 20 },
   { key: "python", label: "Python (3.14)", judge0Id: 71 },
   { key: "go", label: "Go (1.26)", judge0Id: 60 },
   { key: "java", label: "Java (OpenJDK 25)", judge0Id: 62 },
@@ -45,7 +57,9 @@ export const TEST_LANGUAGES = {
     // serializing the build, which makes it slower still.
     wallTimeLimit: 15,
   },
-  cpp: { judge0Id: 91 },
+  // Same headroom as plain C++ execution above - a test harness runs the
+  // candidate's code, so it hits the same walls.
+  cpp: { judge0Id: 91, memoryLimit: 3145728, cpuTimeLimit: 15, wallTimeLimit: 20 },
   java: { judge0Id: 93 },
   bash: { judge0Id: 46 },
 };
@@ -77,6 +91,8 @@ export async function submitToJudge0Raw(lang, sourceCode, stdin) {
       language_id: lang.judge0Id,
       stdin: b64(stdin || ""),
       ...(lang.wallTimeLimit ? { wall_time_limit: lang.wallTimeLimit } : {}),
+      ...(lang.cpuTimeLimit ? { cpu_time_limit: lang.cpuTimeLimit } : {}),
+      ...(lang.memoryLimit ? { memory_limit: lang.memoryLimit } : {}),
       ...(lang.maxFileSize ? { max_file_size: lang.maxFileSize } : {}),
     },
     { params: { base64_encoded: "true", wait: "true" } }
