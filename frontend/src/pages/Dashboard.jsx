@@ -4,7 +4,7 @@ import { api, copyToClipboard, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import TopNav from "../components/TopNav.jsx";
-import { DEFAULT_LANGUAGE } from "../lib/languages.js";
+import { DEFAULT_LANGUAGE, TESTABLE_LANGUAGES, languageLabel } from "../lib/languages.js";
 
 // Same control on the live and archived lists - one switch, both lists.
 function ParticipationFilter({ checked, onChange }) {
@@ -116,7 +116,7 @@ export default function Dashboard() {
     setError("");
     setCreatingFromTemplate(template.id);
     try {
-      const { data } = await api.post("/rooms", { templateId: template.id });
+      const { data } = await api.post("/rooms", { title, templateId: template.id });
       navigate(`/room/${data.id}`);
     } catch {
       setError("Failed to create session from template");
@@ -124,11 +124,28 @@ export default function Dashboard() {
     }
   }
 
+  // The language matters here in a way it doesn't for a template (which
+  // carries its own): it decides which of the problem's per-language starters
+  // seeds the editor. A problem that has no starter for the chosen language
+  // still opens - to an empty editor - so say so rather than quietly handing
+  // the candidate a blank page.
   async function createFromProblem(problem) {
+    const available = problem.starterLanguages ?? [];
+    if (
+      available.length > 0 &&
+      !available.includes(language) &&
+      !window.confirm(
+        `"${problem.title}" has no ${languageLabel(language)} starter ` +
+          `(it has ${available.map(languageLabel).join(", ")}).\n\n` +
+          `Start the session in ${languageLabel(language)} anyway, with an empty editor?`
+      )
+    ) {
+      return;
+    }
     setError("");
     setCreatingFromProblem(problem.id);
     try {
-      const { data } = await api.post("/rooms", { language, problemId: problem.id });
+      const { data } = await api.post("/rooms", { title, language, problemId: problem.id });
       navigate(`/room/${data.id}`);
     } catch {
       setError("Failed to create session from problem");
@@ -219,6 +236,10 @@ export default function Dashboard() {
         </select>
         <button type="submit">Create blank session</button>
       </form>
+      <p className="muted new-room-hint">
+        The title and language above are also used when you start a session from a problem below. A template
+        brings its own language with it.
+      </p>
       {error && <div className="error">{error}</div>}
 
       <div className="dashboard-tabs">
@@ -391,6 +412,21 @@ export default function Dashboard() {
             </button>
             .
           </p>
+          <div className="liked-start-language">
+            <label>
+              Start in{" "}
+              <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                {languages
+                  .filter((l) => TESTABLE_LANGUAGES.includes(l.key))
+                  .map((l) => (
+                    <option key={l.key} value={l.key}>
+                      {l.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <span className="muted">- the same choice as the language above; it picks which starter seeds the editor</span>
+          </div>
           <CardGrid>
             {problems.map((p) => (
               <PreviewCard
@@ -400,7 +436,7 @@ export default function Dashboard() {
                 footer={
                   creatingFromProblem === p.id
                     ? "Creating session…"
-                    : `${"★".repeat(p.difficulty)}${"☆".repeat(5 - p.difficulty)} · ${p.likesCount} ♥ · ${p.shared ? "shared" : "personal"} · refreshed ${formatRelativeTime(p.updated_at)}`
+                    : `${"★".repeat(p.difficulty)}${"☆".repeat(5 - p.difficulty)} · ${p.likesCount} ♥ · ${(p.starterLanguages ?? []).map(languageLabel).join(", ") || "no starters"} · refreshed ${formatRelativeTime(p.updated_at)}`
                 }
                 onClick={() => createFromProblem(p)}
               />

@@ -86,7 +86,10 @@ button.link.danger { color: #f28b82; }
 }
 .dashboard-tabs button:hover { color: #e8e8f0; }
 .dashboard-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
-.new-room { display: flex; gap: 8px; margin-bottom: 24px; }
+.new-room { display: flex; gap: 8px; margin-bottom: 6px; }
+.new-room-hint { font-size: 12px; margin: 0 0 20px; }
+.liked-start-language { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 13px; }
+.liked-start-language span { font-size: 12px; }
 .settings-list { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .settings-list .filter-toggle { margin-bottom: 0; font-size: 14px; color: #c8c8d8; }
 

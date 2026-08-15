@@ -206,7 +206,13 @@ router.get("/", async (req, res) => {
     `SELECT id, title, description, signature_hint AS "signatureHint", difficulty, folder_id AS "folderId",
             is_shared AS shared, (created_by = $1) AS mine, created_at, updated_at,
             (SELECT count(*)::int FROM problem_likes WHERE problem_id = problems.id) AS "likesCount",
-            EXISTS(SELECT 1 FROM problem_likes WHERE problem_id = problems.id AND user_id = $1) AS "likedByMe"
+            EXISTS(SELECT 1 FROM problem_likes WHERE problem_id = problems.id AND user_id = $1) AS "likedByMe",
+            -- Which languages this problem can actually start a session in.
+            -- The dashboard's liked shortlist creates rooms straight from
+            -- this list, so it needs to know before the click, not after.
+            COALESCE((SELECT array_agg(language ORDER BY language)
+                        FROM problem_starters
+                       WHERE problem_id = problems.id AND btrim(starter_code) <> ''), '{}') AS "starterLanguages"
      FROM problems WHERE (created_by = $1 OR is_shared = true) ${folderClause} ${likedClause}
      ORDER BY is_shared ASC, updated_at DESC`,
     values
