@@ -20,20 +20,31 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
   const bindingRef = useRef(null);
   const monacoRef = useRef(null);
   const modelRef = useRef(null);
+  const editorRef = useRef(null);
   const lspRef = useRef(null);
   const [editorReady, setEditorReady] = useState(false);
 
   function handleMount(editor, monaco) {
     monacoRef.current = monaco;
-    modelRef.current = editor.getModel();
+    editorRef.current = editor;
+    const model = editor.getModel();
+    modelRef.current = model;
 
     const ytext = ydoc.getText("code");
-    bindingRef.current = new MonacoBinding(
-      ytext,
-      editor.getModel(),
-      new Set([editor]),
-      provider.awareness
-    );
+    // Monaco keeps ONE end-of-line sequence for the whole buffer and rewrites
+    // anything written into it to match, while y-monaco maps model offsets
+    // 1:1 onto Y.Text indices (it feeds change.rangeOffset straight into
+    // ytext.delete/insert). So the moment a model normalises to CRLF while
+    // the shared text holds bare LF, every local edit lands one character too
+    // far right per line above the cursor - silently, forever, and growing.
+    // That is not hypothetical: it wrecked a real interview (a pasted CRLF
+    // snippet, then a peer's buffer flipped to CRLF, and "struct Gamer" ->
+    // "class Gamer" landed four characters off as "struclasser"). Pin the EOL
+    // to LF and keep \r out of the shared text so the two can't drift apart.
+    model.setEOL(monaco.editor.EndOfLineSequence.LF);
+    stripCarriageReturns(ytext);
+
+    bindingRef.current = new MonacoBinding(ytext, model, new Set([editor]), provider.awareness);
 
     provider.setAwarenessField("user", {
       name: userName,
@@ -44,6 +55,48 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
   }
 
   useEffect(() => () => bindingRef.current?.destroy(), []);
+
+  // A peer still running pre-fix code (an open tab from before a deploy) can
+  // put a \r back into the shared text at any time, which would desync THIS
+  // editor. Scrub it out whenever it appears.
+  useEffect(() => {
+    const ytext = ydoc.getText("code");
+    function onChange(event) {
+      if (!event.delta.some((op) => typeof op.insert === "string" && op.insert.includes("\r"))) {
+        return;
+      }
+      // Deferred: editing the type from inside its own observer would run
+      // inside the transaction currently being delivered.
+      setTimeout(() => stripCarriageReturns(ytext), 0);
+    }
+    ytext.observe(onChange);
+    return () => ytext.unobserve(onChange);
+  }, [ydoc]);
+
+  // Last line of defence. An offset desync between Monaco's buffer and Y.Text
+  // is invisible to the person typing - their own screen stays coherent, and
+  // only the other participants watch the document turn to mush - so nobody
+  // can be expected to notice and reload. Compare the two directly and
+  // rebuild the binding (its constructor resets the model to the Y.Text)
+  // rather than trusting that the causes above are the only ones.
+  useEffect(() => {
+    if (!editorReady) return;
+    const ytext = ydoc.getText("code");
+    const timer = setInterval(() => {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (!model || model.isDisposed()) return;
+      if (model.getValue() === ytext.toString()) return;
+
+      console.warn("collab: editor buffer diverged from the shared document, resyncing");
+      bindingRef.current?.destroy();
+      model.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
+      stripCarriageReturns(ytext);
+      modelRef.current = model;
+      bindingRef.current = new MonacoBinding(ytext, model, new Set([editor]), provider.awareness);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [editorReady, ydoc, provider]);
 
   // y-monaco only assigns decoration classNames (yRemoteSelection-<clientId>,
   // yRemoteSelectionHead-<clientId>) - it renders no color or label itself,
@@ -133,6 +186,19 @@ export default function CollabEditor({ ydoc, provider, language, userName }) {
       }}
     />
   );
+}
+
+// Removes every \r from the shared text, back to front so the earlier indices
+// stay valid. Yjs merges concurrent deletes of the same character, so several
+// peers scrubbing at once is harmless.
+function stripCarriageReturns(ytext) {
+  const text = ytext.toString();
+  if (!text.includes("\r")) return;
+  ytext.doc.transact(() => {
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (text[i] === "\r") ytext.delete(i, 1);
+    }
+  });
 }
 
 // userName is free-text and lands directly in a CSS content: "..." value

@@ -94,6 +94,19 @@ export function startCollabServer() {
       } else if (code && ytext.length === 0) {
         ytext.insert(0, code);
       }
+      // \r must never live in the shared text: Monaco normalises its buffer to
+      // a single EOL, y-monaco maps model offsets straight onto Y.Text
+      // indices, and a mismatch between the two makes every edit land at the
+      // wrong index (see CollabEditor.jsx). Clients scrub it too - this is the
+      // central net that also heals a document persisted before that fix.
+      const text = ytext.toString();
+      if (text.includes("\r")) {
+        document.transact(() => {
+          for (let i = text.length - 1; i >= 0; i--) {
+            if (text[i] === "\r") ytext.delete(i, 1);
+          }
+        });
+      }
       // Playback keyframe: full state snapshot at (re)load time. Client
       // updates causally depend on the restore/seed above (which onChange
       // never sees), so replay resets to a fresh Y.Doc at each keyframe.
