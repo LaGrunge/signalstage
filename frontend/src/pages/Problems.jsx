@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
-import { api } from "../lib/api.js";
+import { api, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import { highlightCode } from "../lib/highlight.js";
@@ -46,6 +46,7 @@ function StarPicker({ value, onChange }) {
 }
 
 export default function Problems() {
+  const isAdmin = useIsAdmin();
   const [problems, setProblems] = useState([]);
   const [folders, setFolders] = useState([]);
   const [selected, setSelected] = useState(null); // tree node data: folder, problem, or null = root
@@ -316,7 +317,9 @@ export default function Problems() {
                   onClick={() => startEdit(p)}
                   actions={[
                     { key: "like", label: p.likedByMe ? `♥ Unlike (${p.likesCount})` : `♡ Like (${p.likesCount})`, onClick: () => toggleLike(p) },
-                    ...(p.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }] : []),
+                    ...(p.mine || isAdmin
+                      ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteProblem(p.id) }]
+                      : []),
                   ]}
                 />
               ))}
@@ -372,11 +375,11 @@ export default function Problems() {
                 ))}
               </select>
             </div>
-            <label title={draft.id && !draft.mine ? "Only the problem's owner can change sharing" : ""}>
+            <label title={draft.id && !draft.mine && !isAdmin ? "Only the problem's owner can change sharing" : ""}>
               <input
                 type="checkbox"
                 checked={draft.shared}
-                disabled={Boolean(draft.id) && !draft.mine}
+                disabled={Boolean(draft.id) && !draft.mine && !isAdmin}
                 onChange={(e) => updateDraft({ shared: e.target.checked })}
               />
               {" "}Share with all interviewers

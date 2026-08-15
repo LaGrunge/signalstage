@@ -5,7 +5,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/pro
 import Ansi from "ansi-to-react";
 import CollabEditor from "../components/CollabEditor.jsx";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
-import { api, collabUrl, getUser } from "../lib/api.js";
+import { api, collabUrl, getUser, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { highlightCode } from "../lib/highlight.js";
 
@@ -64,7 +64,9 @@ export default function Room() {
   // being logged into some account, so a candidate link forwarded to another
   // interviewer's account doesn't render as if they created it.
   const currentUser = getUser();
-  const isInterviewer = Boolean(currentUser) && room?.createdBy === currentUser.id;
+  const isAdmin = useIsAdmin();
+  const isInterviewer =
+    Boolean(currentUser) && (room?.createdBy === currentUser.id || isAdmin);
   const runAllowedForMe = isInterviewer || runEnabled;
   const testsAllowedForMe = isInterviewer || testsEnabled;
   const runningOthers = participants.filter((p) => p.running && p.name !== userName);

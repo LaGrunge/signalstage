@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, copyToClipboard } from "../lib/api.js";
+import { api, copyToClipboard, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import TopNav from "../components/TopNav.jsx";
@@ -21,6 +21,9 @@ export default function Dashboard() {
   // widens it to every interviewer's sessions.
   const [minePlusJoinedOnly, setMinePlusJoinedOnly] = useState(true);
   const navigate = useNavigate();
+  // An admin owns everything as far as these controls are concerned - the API
+  // already accepts their edits to other people's rooms and templates.
+  const isAdmin = useIsAdmin();
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
   const sharedTemplates = templates.filter((t) => t.shared);
 
@@ -214,7 +217,7 @@ export default function Dashboard() {
               }${r.mine ? "" : ` · by ${r.ownerName}`}`}
               participantCount={r.participantCount}
               onClick={() => (r.effectivelyEnded ? navigate(`/playback/${r.id}`) : navigate(`/room/${r.id}`))}
-              onRename={r.mine ? (newTitle) => renameRoom(r.id, newTitle) : undefined}
+              onRename={r.mine || isAdmin ? (newTitle) => renameRoom(r.id, newTitle) : undefined}
               actions={[
                 { key: "playback", label: "▶ Playback", onClick: () => navigate(`/playback/${r.id}`) },
                 ...(r.effectivelyEnded
@@ -224,9 +227,13 @@ export default function Dashboard() {
                       // Ending and deleting stay with the session's owner -
                       // seeing someone else's room is not the same as being
                       // able to close it out from under them.
-                      ...(r.mine ? [{ key: "end", label: "End session", onClick: () => endRoom(r.id) }] : []),
+                      ...(r.mine || isAdmin
+                        ? [{ key: "end", label: "End session", onClick: () => endRoom(r.id) }]
+                        : []),
                     ]),
-                ...(r.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) }] : []),
+                ...(r.mine || isAdmin
+                  ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) }]
+                  : []),
               ]}
             />
           ))}
@@ -277,9 +284,9 @@ export default function Dashboard() {
                 preview={t.code}
                 footer={creatingFromTemplate === t.id ? "Creating session…" : `refreshed ${formatRelativeTime(t.updated_at)}`}
                 onClick={() => createFromTemplate(t)}
-                onRename={t.mine ? (newTitle) => renameTemplate(t.id, newTitle) : undefined}
+                onRename={t.mine || isAdmin ? (newTitle) => renameTemplate(t.id, newTitle) : undefined}
                 actions={
-                  t.mine
+                  t.mine || isAdmin
                     ? [
                         { key: "unshare", label: "Make personal", onClick: () => toggleTemplateShared(t) },
                         { key: "delete", label: "Delete", danger: true, onClick: () => deleteTemplate(t.id) },

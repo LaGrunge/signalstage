@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import axios from "axios";
 
 export const api = axios.create({ baseURL: "/api" });
@@ -40,6 +41,35 @@ export function clearSession() {
 export function getUser() {
   const raw = localStorage.getItem("user");
   return raw ? JSON.parse(raw) : null;
+}
+
+// Whether *this* account is an admin, refreshed from the server rather than
+// trusted from the stored session object (which is written at login and can
+// be a promotion behind). Pages use it to decide whether to offer the
+// owner-only controls: an admin may act on anyone's session, template or
+// problem, and the API already allows it - hiding the buttons was the only
+// thing making that untrue in practice.
+export function useIsAdmin() {
+  const [isAdmin, setIsAdmin] = useState(() => Boolean(getUser()?.isAdmin));
+  useEffect(() => {
+    // Candidates hit the room page with no token at all. Asking anyway would
+    // 401, and the interceptor above turns a 401 into a redirect to /login -
+    // i.e. it would throw the candidate out of the interview.
+    if (!localStorage.getItem("token")) return undefined;
+    let cancelled = false;
+    api
+      .get("/auth/me")
+      .then(({ data }) => {
+        if (cancelled) return;
+        setIsAdmin(Boolean(data.isAdmin));
+        saveSession(localStorage.getItem("token"), data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return isAdmin;
 }
 
 export function collabUrl() {
