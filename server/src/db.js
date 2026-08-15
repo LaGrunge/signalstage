@@ -26,13 +26,41 @@ async function waitForPostgres(retries = 30, delayMs = 1000) {
   }
 }
 
+// Migrations used to re-run on every API boot, which is why they are all
+// written to be idempotent. That was fine for schema changes and wrong for
+// seeds: "idempotent" only ever meant "does not fail twice", and it could not
+// mean "leaves deliberately deleted rows deleted". Editing a seeded problem
+// deletes and reinserts its reference solutions with fresh ids, so the next
+// restart put the seed's own fixed-id rows back *alongside* the edited ones -
+// the shipped example problem had collected three identical copies of every
+// solution that way. Deleting a seeded problem outright had it reappear on
+// the next restart, too.
+//
+// So a file now runs once and is recorded. The idempotency in the existing
+// files is still welcome (this table is created after 20 of them shipped, and
+// they all run one last time on the boot that introduces it), but it is no
+// longer what correctness rests on. A mistake in a released migration needs a
+// new file - editing the old one no longer reaches anyone who has run it.
 export async function runMigrations() {
   await waitForPostgres();
+  await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  const { rows } = await pool.query("SELECT filename FROM schema_migrations");
+  const applied = new Set(rows.map((r) => r.filename));
+
   const migrationsDir = path.join(__dirname, "..", "migrations");
   const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
   for (const file of files) {
+    if (applied.has(file)) continue;
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+    // node-postgres sends a multi-statement string through the simple query
+    // protocol, which wraps it in one implicit transaction - a file that
+    // fails halfway leaves nothing behind and stays unrecorded.
     await pool.query(sql);
+    await pool.query("INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING", [file]);
+    console.log(`applied migration ${file}`);
   }
 }
 

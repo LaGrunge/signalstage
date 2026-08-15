@@ -283,9 +283,18 @@ description, no hidden tests and no Run/Submit pipeline, so anything meant to
 be graded belongs in the bank. The old templates were left in place, not
 deleted; they belong to the user, not to the instance.
 
-Like every seed here the migration uses fixed ids + `ON CONFLICT DO NOTHING`,
-so **editing one of those blobs never reaches an instance that already ran the
-file** - change the problem through the UI or use a new id.
+**Migrations run once per database now** (`schema_migrations`, recorded by
+`runMigrations` in `server/src/db.js`), not on every API boot as they did
+through 020. The old behaviour could not express "stay deleted": editing a
+seeded problem reinserts its reference solutions with fresh ids, so the next
+restart re-ran the seed and added its fixed-id rows *alongside* them - the
+shipped "Is Palindrome" had accumulated three identical copies of every
+solution (cleaned up by `021_dedupe_seeded_solutions.sql`), and deleting a
+seeded problem outright had it reappear. Consequences: existing files stay
+idempotent but nothing rests on that any more, **a mistake in a released
+migration needs a new file rather than an edit**, and editing a seed blob
+never reaches an instance that already ran it - change the problem through
+the UI.
 
 Nothing in a seeded problem is trustworthy until it has actually been through
 Judge0. `server/scripts/validate-problems.mjs` runs every reference solution

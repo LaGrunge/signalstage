@@ -211,10 +211,13 @@ unsigned loop counter that can never go negative, an unsigned accumulator
 seed, a range-for that copies, a reference into a vector that reallocates).
 Its tests assert the numbers the fixed program must produce.
 
-The seeds use fixed ids and `ON CONFLICT DO NOTHING`, because migrations
-re-run on every API boot — so **editing a blob in the migration does not
-update an instance that already ran it**. Change a seeded problem through the
-Problem bank UI, or give the replacement a new id.
+A migration runs once per database and is then recorded in
+`schema_migrations`, so **editing a blob in a seed does not update an instance
+that already ran it**. Change a seeded problem through the Problem bank UI, or
+add a new migration. (Seeded problems can also be edited and deleted freely —
+before `schema_migrations` existed every file re-ran on every API boot, which
+put deleted seed rows back on the next restart and grew a duplicate copy of
+every reference solution each time a seeded problem was edited.)
 
 To check every reference solution still passes its own tests through the real
 Judge0/isolate pipeline (the same thing the authoring form's "Validate"
