@@ -51,11 +51,13 @@ export default function Room() {
   const [problem, setProblem] = useState(null);
   const [problems, setProblems] = useState([]);
   const [testsEnabled, setTestsEnabled] = useState(true);
+  const [copyPasteBlocked, setCopyPasteBlocked] = useState(false);
   const [testResults, setTestResults] = useState(null);
   const [testsRunning, setTestsRunning] = useState(false);
   const [taskOpen, setTaskOpen] = useState(true);
   const [resultsTab, setResultsTab] = useState("output"); // "output" | "tests"
   const [ended, setEnded] = useState(false);
+  const [clipboardNotice, setClipboardNotice] = useState(null);
 
   // Templates/versions/the run-permission toggle are the interviewer's own
   // tools - gated on actually owning *this* room (created_by), not just on
@@ -106,6 +108,7 @@ export default function Room() {
         setLanguage(data.language);
         setRunEnabled(data.runEnabled ?? true);
         setTestsEnabled(data.testsEnabled ?? true);
+        setCopyPasteBlocked(data.copyPasteBlocked ?? false);
         if (data.endedAt) setEnded(true);
         const loggedInUser = getUser();
         if (loggedInUser && loggedInUser.id === data.createdBy) {
@@ -172,11 +175,41 @@ export default function Room() {
       if (lang) setLanguage(lang);
       setRunEnabled(config.get("runEnabled") ?? true);
       setTestsEnabled(config.get("testsEnabled") ?? true);
+      setCopyPasteBlocked(config.get("copyPasteBlocked") ?? false);
     };
     config.observe(onUpdate);
     onUpdate();
     return () => config.unobserve(onUpdate);
   }, [provider, ydoc]);
+
+  // Candidate-side copy/paste block. The browser is the one refusing here, so
+  // this raises the cost of pasting in a prepared solution rather than making
+  // it impossible (devtools, a second window, or a phone camera all still
+  // exist) - the interviewer just gets to see an honest attempt by default.
+  // Document-level and capture-phase so it covers the editor, the task text
+  // and the results pane in one place. Never applies to the interviewer.
+  useEffect(() => {
+    if (!copyPasteBlocked || isInterviewer) return;
+    const block = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setClipboardNotice(e.type);
+    };
+    for (const type of ["copy", "cut", "paste", "dragstart", "drop"]) {
+      document.addEventListener(type, block, true);
+    }
+    return () => {
+      for (const type of ["copy", "cut", "paste", "dragstart", "drop"]) {
+        document.removeEventListener(type, block, true);
+      }
+    };
+  }, [copyPasteBlocked, isInterviewer]);
+
+  useEffect(() => {
+    if (!clipboardNotice) return;
+    const timer = setTimeout(() => setClipboardNotice(null), 2500);
+    return () => clearTimeout(timer);
+  }, [clipboardNotice]);
 
   useEffect(() => {
     if (!provider) return;
@@ -292,6 +325,15 @@ export default function Room() {
       ydoc.getMap("config").set("runEnabled", data.runEnabled);
     } catch {
       window.alert("Failed to update run permission");
+    }
+  }
+
+  async function toggleCopyPaste() {
+    try {
+      const { data } = await api.patch(`/rooms/${roomId}`, { copyPasteBlocked: !copyPasteBlocked });
+      ydoc.getMap("config").set("copyPasteBlocked", data.copyPasteBlocked);
+    } catch {
+      window.alert("Failed to update copy/paste permission");
     }
   }
 
@@ -511,6 +553,11 @@ export default function Room() {
             {runEnabled ? "Disable candidate run" : "Enable candidate run"}
           </button>
         )}
+        {isInterviewer && (
+          <button className="link" onClick={toggleCopyPaste} title="Blocks copy, cut and paste for the candidate">
+            {copyPasteBlocked ? "Allow candidate copy/paste" : "Block candidate copy/paste"}
+          </button>
+        )}
         {isInterviewer && room.problemId && (
           <button className="link" onClick={toggleTestsEnabled}>
             {testsEnabled ? "Disable candidate tests" : "Enable candidate tests"}
@@ -549,6 +596,13 @@ export default function Room() {
         )}
       </header>
 
+      {copyPasteBlocked && !isInterviewer && (
+        <div className="conn-banner stale">
+          {clipboardNotice
+            ? `⚠ ${clipboardNotice === "paste" ? "Pasting" : "Copying"} is disabled in this session.`
+            : "⚠ Copy and paste are disabled in this session."}
+        </div>
+      )}
       {!connected && everConnectedRef.current && (
         <div className="conn-banner lost">
           ⚠ Connection lost — reconnecting. Edits made now are not visible to the other side until the

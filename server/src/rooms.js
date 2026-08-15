@@ -124,8 +124,8 @@ router.post("/:id/end", requireAuth, async (req, res) => {
 });
 
 router.patch("/:id", requireAuth, async (req, res) => {
-  const { title, runEnabled, testsEnabled, problemId } = req.body || {};
-  if ([title, runEnabled, testsEnabled, problemId].every((v) => v === undefined)) {
+  const { title, runEnabled, testsEnabled, copyPasteBlocked, problemId } = req.body || {};
+  if ([title, runEnabled, testsEnabled, copyPasteBlocked, problemId].every((v) => v === undefined)) {
     return res.status(400).json({ error: "nothing to update" });
   }
   if (title !== undefined && !title?.trim()) {
@@ -154,6 +154,10 @@ router.patch("/:id", requireAuth, async (req, res) => {
     values.push(Boolean(testsEnabled));
     sets.push(`tests_enabled = $${values.length}`);
   }
+  if (copyPasteBlocked !== undefined) {
+    values.push(Boolean(copyPasteBlocked));
+    sets.push(`copy_paste_blocked = $${values.length}`);
+  }
   // problemId: null explicitly detaches (candidate's editor keeps whatever
   // code is already there - only the "attached task" pointer changes here,
   // the frontend handles seeding the editor itself, same as inserting a
@@ -167,7 +171,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE rooms SET ${sets.join(", ")} WHERE id = $${values.length - 1} AND created_by = $${values.length}
      RETURNING id, title, language, active, created_at, last_active_at,
-               run_enabled AS "runEnabled", tests_enabled AS "testsEnabled", problem_id AS "problemId"`,
+               run_enabled AS "runEnabled", tests_enabled AS "testsEnabled",
+               copy_paste_blocked AS "copyPasteBlocked", problem_id AS "problemId"`,
     values
   );
   if (!rows[0]) return res.status(404).json({ error: "room not found" });
@@ -182,7 +187,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
 router.get("/:id", optionalAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, title, language, active, created_by AS "createdBy", run_enabled AS "runEnabled",
-            tests_enabled AS "testsEnabled", problem_id AS "problemId", ended_at AS "endedAt"
+            tests_enabled AS "testsEnabled", copy_paste_blocked AS "copyPasteBlocked",
+            problem_id AS "problemId", ended_at AS "endedAt"
      FROM rooms WHERE id = $1`,
     [req.params.id]
   );
