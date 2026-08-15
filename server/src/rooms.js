@@ -196,8 +196,8 @@ router.get("/:id", optionalAuth, async (req, res) => {
   if (req.user) {
     pool
       .query(
-        `INSERT INTO room_participants (room_id, user_id) VALUES ($1, $2)
-         ON CONFLICT (room_id, user_id) DO UPDATE SET last_seen = now()`,
+        `INSERT INTO room_participants (room_id, user_id, source) VALUES ($1, $2, 'visit')
+         ON CONFLICT (room_id, user_id) DO UPDATE SET last_seen = now(), source = 'visit'`,
         [req.params.id, req.user.sub]
       )
       .catch((err) => console.error("failed to record participation:", err.message));

@@ -19,13 +19,19 @@ SELECT id, created_by, created_at, last_active_at FROM rooms
 ON CONFLICT (room_id, user_id) DO NOTHING;
 
 -- Best-effort backfill for everyone else: match past join/leave events to
--- accounts by display name. Names are not unique or verified, so this is a
--- one-time convenience for sessions that happened before this table existed,
--- not the mechanism going forward (see GET /rooms/:id in rooms.js, which
--- records participation from the authenticated request itself).
+-- accounts by display name. This is a one-time convenience for sessions that
+-- happened before this table existed, not the mechanism going forward (see
+-- GET /rooms/:id in rooms.js, which records participation from the
+-- authenticated request itself).
+--
+-- Only names that belong to exactly one account are matched. Display names
+-- are neither unique nor verified, and this deployment really does have
+-- several accounts sharing one - matching those would hand a session to
+-- people who were never in it.
 INSERT INTO room_participants (room_id, user_id, first_seen, last_seen)
 SELECT e.room_id, u.id, min(e.created_at), max(e.created_at)
 FROM room_events e
 JOIN users u ON u.name = e.actor
+WHERE (SELECT count(*) FROM users u2 WHERE u2.name = u.name) = 1
 GROUP BY e.room_id, u.id
 ON CONFLICT (room_id, user_id) DO NOTHING;
