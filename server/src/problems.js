@@ -119,8 +119,14 @@ router.patch("/folders/:id", async (req, res) => {
 
     await ensureAncestors(client, nextPath, req.user.sub);
     await client.query("UPDATE problem_folders SET path = $1 WHERE id = $2", [nextPath, req.params.id]);
+    // $3::int matters: without the cast the parameter arrives untyped, and
+    // Postgres resolves substring(text FROM unknown) to the *regular
+    // expression* form rather than the offset one. The pattern "11" matches
+    // nothing, substring returns NULL, and the whole rename dies on
+    // problem_folders.path's NOT NULL - which is why renaming a folder only
+    // ever failed once it had children.
     await client.query(
-      "UPDATE problem_folders SET path = $1 || substring(path from $3) WHERE path LIKE $2",
+      "UPDATE problem_folders SET path = $1 || substring(path from $3::int) WHERE path LIKE $2",
       [nextPath, prevPath + "/%", prevPath.length + 1]
     );
     await client.query("COMMIT");
