@@ -4,6 +4,7 @@ import { api, copyToClipboard, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import TopNav from "../components/TopNav.jsx";
+import { DEFAULT_LANGUAGE } from "../lib/languages.js";
 
 // Same control on the live and archived lists - one switch, both lists.
 function ParticipationFilter({ checked, onChange }) {
@@ -19,7 +20,7 @@ export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
   const [archivedRooms, setArchivedRooms] = useState([]);
   const [title, setTitle] = useState("");
-  const [language, setLanguage] = useState("python");
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [languages, setLanguages] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [problems, setProblems] = useState([]);

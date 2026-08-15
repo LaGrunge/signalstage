@@ -8,6 +8,7 @@ import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import { api, collabUrl, getUser, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { highlightCode } from "../lib/highlight.js";
+import { DEFAULT_LANGUAGE } from "../lib/languages.js";
 
 const FILE_EXTENSIONS = { cpp: "cpp", python: "py", go: "go", java: "java", bash: "sh", mariadb: "sql" };
 
@@ -32,7 +33,7 @@ export default function Room() {
   const [notFound, setNotFound] = useState(false);
   const [userName, setUserName] = useState(() => sessionStorage.getItem("displayName") || "");
   const [nameInput, setNameInput] = useState("");
-  const [language, setLanguage] = useState("python");
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [languages, setLanguages] = useState([]);
   const [stdin, setStdin] = useState("");
   const [output, setOutput] = useState(null);

@@ -6,10 +6,8 @@ import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import { highlightCode } from "../lib/highlight.js";
 import TopNav from "../components/TopNav.jsx";
 import ProblemTree from "../components/ProblemTree.jsx";
+import { DEFAULT_LANGUAGE, TESTABLE_LANGUAGES, languageLabel, orderLanguages } from "../lib/languages.js";
 
-// Only these have a real test harness (server/src/testHarness/index.js) -
-// mariadb doesn't fit the "author writes real test code" model at all.
-const TESTABLE_LANGUAGES = ["python", "go", "cpp", "java", "bash"];
 const MONACO_LANGUAGE = { python: "python", go: "go", cpp: "cpp", java: "java", bash: "shell" };
 
 function emptyDraft() {
@@ -24,6 +22,30 @@ function emptyDraft() {
     starters: TESTABLE_LANGUAGES.map((language) => ({ language, code: "" })),
     solutions: [],
     testCode: TESTABLE_LANGUAGES.map((language) => ({ language, publicCode: "", hiddenCode: "" })),
+  };
+}
+
+// The authoring form edits one language tab at a time by *updating* the entry
+// for that language, so a problem that arrives with starters in only some
+// languages (every seeded one, and anything written C++-first) has to be
+// padded out here - otherwise typing into an absent language's tab silently
+// does nothing and there is no way to add that language at all. saveDraft
+// strips the still-empty ones back out again.
+function withEveryLanguage(problem) {
+  return {
+    ...problem,
+    starters: TESTABLE_LANGUAGES.map((language) => ({
+      language,
+      code: problem.starters.find((s) => s.language === language)?.code ?? "",
+    })),
+    testCode: TESTABLE_LANGUAGES.map((language) => {
+      const existing = problem.testCode.find((t) => t.language === language);
+      return {
+        language,
+        publicCode: existing?.publicCode ?? "",
+        hiddenCode: existing?.hiddenCode ?? "",
+      };
+    }),
   };
 }
 
@@ -52,9 +74,9 @@ export default function Problems() {
   const [selected, setSelected] = useState(null); // tree node data: folder, problem, or null = root
   const [openFolders, setOpenFolders] = useState({}); // survives the tree unmounting while a problem is open
   const [preview, setPreview] = useState(null); // full problem behind the selected leaf
-  const [previewLang, setPreviewLang] = useState("python");
+  const [previewLang, setPreviewLang] = useState(DEFAULT_LANGUAGE);
   const [draft, setDraft] = useState(null);
-  const [activeLang, setActiveLang] = useState("python");
+  const [activeLang, setActiveLang] = useState(DEFAULT_LANGUAGE);
   const [saving, setSaving] = useState(false);
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
@@ -90,7 +112,7 @@ export default function Problems() {
         if (cancelled) return;
         setPreview(data);
         const withStarter = data.starters.find((s) => s.code.trim());
-        setPreviewLang(withStarter?.language ?? "python");
+        setPreviewLang(withStarter?.language ?? DEFAULT_LANGUAGE);
       })
       .catch(() => !cancelled && setError("Failed to load problem"));
     return () => {
@@ -166,17 +188,17 @@ export default function Problems() {
 
   function startCreate() {
     setValidation(null);
-    setActiveLang("python");
+    setActiveLang(DEFAULT_LANGUAGE);
     setDraft({ ...emptyDraft(), folderId: selectedFolderId });
   }
 
   async function startEdit(summary) {
     setValidation(null);
     setError("");
-    setActiveLang("python");
+    setActiveLang(DEFAULT_LANGUAGE);
     try {
       const { data } = await api.get(`/problems/${summary.id}`);
-      setDraft(data);
+      setDraft(withEveryLanguage(data));
     } catch {
       setError("Failed to load problem");
     }
@@ -233,8 +255,16 @@ export default function Problems() {
     setSaving(true);
     setError("");
     try {
-      const { data } = draft.id ? await api.put(`/problems/${draft.id}`, draft) : await api.post("/problems", draft);
-      setDraft(data);
+      // Empty tabs are not content: a problem written only in C++ should stay
+      // a C++-only problem rather than gaining four blank starters that the
+      // preview and the session seeding then have to filter back out.
+      const payload = {
+        ...draft,
+        starters: draft.starters.filter((s) => s.code.trim()),
+        testCode: draft.testCode.filter((t) => t.publicCode.trim() || t.hiddenCode.trim()),
+      };
+      const { data } = draft.id ? await api.put(`/problems/${draft.id}`, payload) : await api.post("/problems", payload);
+      setDraft(withEveryLanguage(data));
       setValidation(null);
       await reload();
     } catch (err) {
@@ -389,7 +419,7 @@ export default function Problems() {
           <div className="lang-tabs">
             {TESTABLE_LANGUAGES.map((l) => (
               <button key={l} className={activeLang === l ? "active" : ""} onClick={() => setActiveLang(l)}>
-                {l}
+                {languageLabel(l)}
               </button>
             ))}
           </div>
@@ -404,7 +434,7 @@ export default function Problems() {
             options={{ fontSize: 13, minimap: { enabled: false } }}
           />
 
-          <label>Public test code (real {activeLang} test code, shown to the candidate as runnable examples)</label>
+          <label>Public test code (real {languageLabel(activeLang)} test code, shown to the candidate as runnable examples)</label>
           <Editor
             height="200px"
             language={MONACO_LANGUAGE[activeLang]}
@@ -414,7 +444,7 @@ export default function Problems() {
             options={{ fontSize: 13, minimap: { enabled: false } }}
           />
 
-          <label>Hidden test code (real {activeLang} test code, never shown to the candidate)</label>
+          <label>Hidden test code (real {languageLabel(activeLang)} test code, never shown to the candidate)</label>
           <Editor
             height="200px"
             language={MONACO_LANGUAGE[activeLang]}
@@ -425,7 +455,7 @@ export default function Problems() {
           />
 
           <h3 className="side-panel-subheading">
-            Reference solutions in {activeLang} (authoring only - never shown to or run for candidates)
+            Reference solutions in {languageLabel(activeLang)} (authoring only - never shown to or run for candidates)
           </h3>
           {draft.solutions
             .map((s, i) => ({ s, i }))
@@ -456,7 +486,7 @@ export default function Problems() {
               </div>
             ))}
           <button className="link" onClick={() => addSolution(activeLang)}>
-            + Add reference solution ({activeLang})
+            + Add reference solution ({languageLabel(activeLang)})
           </button>
           {draft.solutions.length > 0 && (
             <div>
@@ -475,7 +505,7 @@ export default function Problems() {
 // otherwise use - description in full, plus the starter a candidate would
 // actually see, so picking a task doesn't require opening the editor for it.
 function ProblemPreview({ problem, language, onLanguage, onEdit, onLike }) {
-  const languages = problem.starters.filter((s) => s.code.trim()).map((s) => s.language);
+  const languages = orderLanguages(problem.starters.filter((s) => s.code.trim()).map((s) => s.language));
   const starter = problem.starters.find((s) => s.language === language)?.code ?? "";
   return (
     <div className="problem-preview">
@@ -510,7 +540,7 @@ function ProblemPreview({ problem, language, onLanguage, onEdit, onLike }) {
             <div className="lang-tabs">
               {languages.map((l) => (
                 <button key={l} className={l === language ? "active" : ""} onClick={() => onLanguage(l)}>
-                  {l}
+                  {languageLabel(l)}
                 </button>
               ))}
             </div>

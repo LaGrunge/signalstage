@@ -32,7 +32,7 @@ function roomPreview(room) {
 
 router.post("/", requireAuth, async (req, res) => {
   const { title, language, templateId, problemId } = req.body || {};
-  let lang = LANGUAGE_KEYS.has(language) ? language : "python";
+  let lang = LANGUAGE_KEYS.has(language) ? language : "cpp";
   let initialCode = null;
   let defaultTitle = "Interview session";
   let attachedProblemId = null;
