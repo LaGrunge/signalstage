@@ -71,10 +71,21 @@ router.post("/", requireAuth, async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
+// Default view is "sessions I took part in" - the ones I created plus the
+// ones I actually joined (room_participants, recorded in GET /:id below).
+// ?scope=all opens it up to every interviewer's sessions, which is what the
+// dashboard's checkbox toggles: co-interviewers need to find a session they
+// sat in on, and reviewers need to find one they didn't.
 router.get("/", requireAuth, async (req, res) => {
+  const all = req.query.scope === "all";
   const { rows } = await pool.query(
-    `SELECT id, title, language, active, created_at, last_active_at, ended_at, initial_code, last_code
-     FROM rooms WHERE created_by = $1 AND active = true ORDER BY last_active_at DESC`,
+    `SELECT r.id, r.title, r.language, r.active, r.created_at, r.last_active_at, r.ended_at,
+            r.initial_code, r.last_code, (r.created_by = $1) AS mine, u.name AS "ownerName"
+     FROM rooms r
+     JOIN users u ON u.id = r.created_by
+     WHERE r.active = true
+       ${all ? "" : "AND (r.created_by = $1 OR EXISTS (SELECT 1 FROM room_participants p WHERE p.room_id = r.id AND p.user_id = $1))"}
+     ORDER BY r.last_active_at DESC`,
     [req.user.sub]
   );
   res.json(
@@ -168,7 +179,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
 // tools work. Candidates never need an account. created_by is just a UUID
 // (no PII) - the frontend uses it to tell a real room owner apart from any
 // other logged-in account that happens to open this link.
-router.get("/:id", async (req, res) => {
+router.get("/:id", optionalAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, title, language, active, created_by AS "createdBy", run_enabled AS "runEnabled",
             tests_enabled AS "testsEnabled", problem_id AS "problemId", ended_at AS "endedAt"
@@ -176,17 +187,34 @@ router.get("/:id", async (req, res) => {
     [req.params.id]
   );
   if (!rows[0] || !rows[0].active) return res.status(404).json({ error: "room not found" });
+
+  // Opening the room page while logged in is what makes someone a
+  // participant of it (this is the one request every interviewer joining a
+  // session makes, candidates included - they just aren't authenticated, so
+  // nothing is recorded for them). Best effort: failing to record
+  // participation must not keep anyone out of the room.
+  if (req.user) {
+    pool
+      .query(
+        `INSERT INTO room_participants (room_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (room_id, user_id) DO UPDATE SET last_seen = now()`,
+        [req.params.id, req.user.sub]
+      )
+      .catch((err) => console.error("failed to record participation:", err.message));
+  }
   res.json(rows[0]);
 });
 
 // Interviewer-only, same as templates - this is their view into what a
 // candidate has tried, not something the candidate side needs to read back.
+// Any signed-in interviewer, not just the room's creator: co-interviewers
+// share a session and the dashboard can list every interviewer's rooms
+// (GET /?scope=all), so an owner-only rule here would leave a visible room
+// with a panel that 404s. Mutating a session (end/rename/delete) is still
+// owner-only.
 router.get("/:id/submissions", requireAuth, async (req, res) => {
-  const owns = await pool.query("SELECT 1 FROM rooms WHERE id = $1 AND created_by = $2", [
-    req.params.id,
-    req.user.sub,
-  ]);
-  if (!owns.rows[0]) return res.status(404).json({ error: "room not found" });
+  const exists = await pool.query("SELECT 1 FROM rooms WHERE id = $1", [req.params.id]);
+  if (!exists.rows[0]) return res.status(404).json({ error: "room not found" });
 
   const { rows } = await pool.query(
     `SELECT id, language, code, stdin, status, stdout, stderr, compile_output, submitted_by, created_at
@@ -300,14 +328,15 @@ router.post("/:id/tests", optionalAuth, async (req, res) => {
 // Everything the playback page needs in one shot: the ordered Yjs update
 // log (base64, keyframe rows reset the replay doc - see 011_playback.sql)
 // plus all timeline events (participant joins/leaves, code runs, test runs)
-// merged and sorted. Interviewer-only, same ownership model as
-// /submissions; deliberately does NOT filter on active/ended - ended and
-// even ongoing sessions are replayable.
+// merged and sorted. Any signed-in interviewer, same as /submissions -
+// co-interviewers need to replay a session they sat in on, and the dashboard
+// can list sessions they didn't. Deliberately does NOT filter on
+// active/ended - ended and even ongoing sessions are replayable.
 router.get("/:id/playback", requireAuth, async (req, res) => {
   const { rows: roomRows } = await pool.query(
     `SELECT title, language, created_at AS "createdAt", ended_at AS "endedAt", last_code AS "lastCode"
-     FROM rooms WHERE id = $1 AND created_by = $2`,
-    [req.params.id, req.user.sub]
+     FROM rooms WHERE id = $1`,
+    [req.params.id]
   );
   if (!roomRows[0]) return res.status(404).json({ error: "room not found" });
 

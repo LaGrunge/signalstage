@@ -335,6 +335,34 @@ found by running it, not by reading it:
   nothing ever prunes the update log. A real cleanup (hard delete or a
   retention sweep) is future work.
 
+## Who can see which session
+
+The dashboard's Sessions tab has a checkbox, on by default: **only sessions I
+took part in** - the ones I created plus the ones I actually opened. Off, it
+lists every interviewer's sessions.
+
+"Took part in" is `room_participants` (migration `014_room_participants.sql`),
+written from the authenticated `GET /rooms/:id` - the one request every
+interviewer joining a room makes. It deliberately does *not* reuse
+`room_events.actor`: that is a free-text display name the candidate types
+themselves, so it identifies nobody. 014 does backfill old rooms by matching
+`room_events.actor` to `users.name`, as a one-time convenience only.
+
+Access, once other people's rooms can appear in the list:
+
+- **Read is open to any signed-in interviewer** - the room, its submissions,
+  and its playback. The list itself already ships a 400-char code preview of
+  every room it returns, so withholding the replay would protect nothing while
+  leaving visible cards whose panels 404.
+- **Write stays with the room's owner**: end, rename, delete. Seeing someone
+  else's session is not the same as being able to close it out from under
+  them. The frontend hides those actions on other people's cards and the API
+  refuses them independently (404), so the UI is not the security boundary.
+
+If the set of interviewers ever stops being small and trusted, the read side
+is the part to revisit - narrowing playback to participants is a one-line
+`EXISTS` in `rooms.js`.
+
 ## Session playback (recording + replay)
 
 Added after the first interview deployment; know these invariants before

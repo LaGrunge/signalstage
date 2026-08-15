@@ -17,12 +17,15 @@ export default function Dashboard() {
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(null);
   const [creatingFromProblem, setCreatingFromProblem] = useState(null);
   const [activeTab, setActiveTab] = useState("sessions"); // sessions | personal | shared | problems
+  // Default view is the sessions this interviewer took part in; unchecking
+  // widens it to every interviewer's sessions.
+  const [minePlusJoinedOnly, setMinePlusJoinedOnly] = useState(true);
   const navigate = useNavigate();
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
   const sharedTemplates = templates.filter((t) => t.shared);
 
-  async function loadRooms() {
-    const { data } = await api.get("/rooms");
+  async function loadRooms(participatedOnly = minePlusJoinedOnly) {
+    const { data } = await api.get(`/rooms${participatedOnly ? "" : "?scope=all"}`);
     setRooms(data);
   }
 
@@ -185,6 +188,18 @@ export default function Dashboard() {
       </div>
 
       {activeTab === "sessions" && (
+        <>
+        <label className="filter-toggle">
+          <input
+            type="checkbox"
+            checked={minePlusJoinedOnly}
+            onChange={(e) => {
+              setMinePlusJoinedOnly(e.target.checked);
+              loadRooms(e.target.checked).catch(() => setError("Failed to load sessions"));
+            }}
+          />{" "}
+          Only sessions I took part in
+        </label>
         <CardGrid>
           {rooms.map((r) => (
             <PreviewCard
@@ -192,28 +207,36 @@ export default function Dashboard() {
               title={r.title}
               language={r.language}
               preview={r.preview}
-              footer={
+              footer={`${
                 r.effectivelyEnded
                   ? `ended ${formatRelativeTime(r.ended_at || r.last_active_at)}`
                   : `refreshed ${formatRelativeTime(r.last_active_at)}`
-              }
+              }${r.mine ? "" : ` · by ${r.ownerName}`}`}
               participantCount={r.participantCount}
               onClick={() => (r.effectivelyEnded ? navigate(`/playback/${r.id}`) : navigate(`/room/${r.id}`))}
-              onRename={(newTitle) => renameRoom(r.id, newTitle)}
+              onRename={r.mine ? (newTitle) => renameRoom(r.id, newTitle) : undefined}
               actions={[
                 { key: "playback", label: "▶ Playback", onClick: () => navigate(`/playback/${r.id}`) },
                 ...(r.effectivelyEnded
                   ? []
                   : [
                       { key: "copy", label: copiedId === r.id ? "Copied!" : "Copy link", onClick: () => copyLink(r.id) },
-                      { key: "end", label: "End session", onClick: () => endRoom(r.id) },
+                      // Ending and deleting stay with the session's owner -
+                      // seeing someone else's room is not the same as being
+                      // able to close it out from under them.
+                      ...(r.mine ? [{ key: "end", label: "End session", onClick: () => endRoom(r.id) }] : []),
                     ]),
-                { key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) },
+                ...(r.mine ? [{ key: "delete", label: "Delete", danger: true, onClick: () => deleteRoom(r.id) }] : []),
               ]}
             />
           ))}
-          {rooms.length === 0 && <div className="muted">No sessions yet</div>}
+          {rooms.length === 0 && (
+            <div className="muted">
+              {minePlusJoinedOnly ? "No sessions you took part in yet" : "No sessions yet"}
+            </div>
+          )}
         </CardGrid>
+        </>
       )}
 
       {activeTab === "personal" && (

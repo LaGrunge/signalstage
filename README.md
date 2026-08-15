@@ -182,6 +182,15 @@ per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
 quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
 browsing and authoring the whole bank happens on the Problem bank page.
 
+## Session visibility
+
+The Sessions tab lists, by default, the sessions you took part in — the ones
+you created plus the ones you opened (participation is recorded per account in
+`room_participants`). Unchecking "Only sessions I took part in" widens the list
+to every interviewer's sessions. Any signed-in interviewer can read another's
+session (room, submissions, playback); ending, renaming and deleting stay with
+the session's owner.
+
 ## Quick start
 
 ```bash
