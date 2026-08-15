@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import { api } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
+import TopNav from "../components/TopNav.jsx";
+import ProblemTree from "../components/ProblemTree.jsx";
 
 // Only these have a real test harness (server/src/testHarness/index.js) -
 // mariadb doesn't fit the "author writes real test code" model at all.
@@ -44,11 +45,10 @@ function StarPicker({ value, onChange }) {
 }
 
 export default function Problems() {
-  const navigate = useNavigate();
   const [problems, setProblems] = useState([]);
   const [folders, setFolders] = useState([]);
-  const [activeFolderId, setActiveFolderId] = useState(undefined); // undefined = All
-  const [newFolderTitle, setNewFolderTitle] = useState("");
+  const [selected, setSelected] = useState(null); // tree node data: folder, problem, or null = root
+  const [openFolders, setOpenFolders] = useState({}); // survives the tree unmounting while a problem is open
   const [draft, setDraft] = useState(null);
   const [activeLang, setActiveLang] = useState("python");
   const [saving, setSaving] = useState(false);
@@ -56,50 +56,90 @@ export default function Problems() {
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState("");
 
-  function loadFolders() {
-    return api.get("/problems/folders").then(({ data }) => setFolders(data));
-  }
-
-  function loadProblems(folderId) {
-    const query = folderId === undefined ? "" : `?folderId=${encodeURIComponent(folderId ?? "")}`;
-    return api.get(`/problems${query}`).then(({ data }) => setProblems(data));
+  // The tree needs the whole bank at once (a per-folder fetch would make
+  // expanding a node a round trip), so everything is loaded here and the
+  // right-hand pane filters locally.
+  function reload() {
+    return Promise.all([
+      api.get("/problems/folders").then(({ data }) => setFolders(data)),
+      api.get("/problems").then(({ data }) => setProblems(data)),
+    ]);
   }
 
   useEffect(() => {
-    loadFolders().catch(() => setError("Failed to load folders"));
+    reload().catch(() => setError("Failed to load the problem bank"));
   }, []);
 
-  useEffect(() => {
-    loadProblems(activeFolderId).catch(() => setError("Failed to load problems"));
-  }, [activeFolderId]);
+  const selectedFolder = selected?.kind === "folder" ? selected : null;
+  const selectedFolderId = selectedFolder?.folderId ?? null;
+  const visibleProblems = problems.filter((p) => (p.folderId ?? null) === selectedFolderId);
 
-  async function createFolder(e) {
-    e.preventDefault();
-    if (!newFolderTitle.trim()) return;
+  function reportFolderError(err, fallback) {
+    const message = err.response?.data?.error;
+    setError(
+      message === "folder is not empty"
+        ? "Folder is not empty - move or delete what's inside it first"
+        : message || fallback
+    );
+  }
+
+  async function createFolder(path) {
+    setError("");
     try {
-      await api.post("/problems/folders", { title: newFolderTitle.trim() });
-      setNewFolderTitle("");
-      await loadFolders();
-    } catch {
-      setError("Failed to create folder");
+      const { data } = await api.post("/problems/folders", { path });
+      await reload();
+      return data;
+    } catch (err) {
+      reportFolderError(err, "Failed to create folder");
+      return null;
+    }
+  }
+
+  async function renameFolder(id, path) {
+    setError("");
+    try {
+      await api.patch(`/problems/folders/${id}`, { path });
+      await reload();
+    } catch (err) {
+      reportFolderError(err, "Failed to rename folder");
     }
   }
 
   async function deleteFolder(id) {
-    if (!window.confirm("Delete this folder?")) return;
+    setError("");
     try {
       await api.delete(`/problems/folders/${id}`);
-      if (activeFolderId === id) setActiveFolderId(undefined);
-      await loadFolders();
+      if (selectedFolderId === id) setSelected(null);
+      await reload();
     } catch (err) {
-      setError(err.response?.data?.error === "folder is not empty" ? "Folder is not empty - move or delete its problems first" : "Failed to delete folder");
+      reportFolderError(err, "Failed to delete folder");
+    }
+  }
+
+  async function renameProblem(id, title) {
+    setError("");
+    try {
+      await api.patch(`/problems/${id}`, { title });
+      await reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to rename problem");
+    }
+  }
+
+  async function moveProblem(id, folderId) {
+    setError("");
+    try {
+      await api.patch(`/problems/${id}`, { folderId });
+      await reload();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to move problem");
     }
   }
 
   function startCreate() {
     setValidation(null);
     setActiveLang("python");
-    setDraft({ ...emptyDraft(), folderId: activeFolderId || null });
+    setDraft({ ...emptyDraft(), folderId: selectedFolderId });
   }
 
   async function startEdit(summary) {
@@ -118,7 +158,7 @@ export default function Problems() {
     if (!window.confirm("Delete this problem? This cannot be undone.")) return;
     try {
       await api.delete(`/problems/${id}`);
-      await loadProblems(activeFolderId);
+      await reload();
     } catch {
       setError("Failed to delete problem");
     }
@@ -127,7 +167,7 @@ export default function Problems() {
   async function toggleLike(problem) {
     try {
       await api.post(`/problems/${problem.id}/like`, {});
-      await loadProblems(activeFolderId);
+      await reload();
     } catch {
       setError("Failed to update like");
     }
@@ -168,7 +208,7 @@ export default function Problems() {
       const { data } = draft.id ? await api.put(`/problems/${draft.id}`, draft) : await api.post("/problems", draft);
       setDraft(data);
       setValidation(null);
-      await loadProblems(activeFolderId);
+      await reload();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to save problem");
     } finally {
@@ -198,46 +238,39 @@ export default function Problems() {
 
   return (
     <div className="dashboard">
-      <header>
-        <button className="link" onClick={() => navigate("/dashboard")}>
-          ← Dashboard
-        </button>
-        <div>
-          <strong>Problem bank</strong>
-        </div>
-      </header>
+      <TopNav />
 
       {error && <div className="error">{error}</div>}
 
       {!draft && (
         <div className="problems-layout">
-          <div className="folder-sidebar">
-            <button className={activeFolderId === undefined ? "active" : ""} onClick={() => setActiveFolderId(undefined)}>
-              All problems
-            </button>
-            <button className={activeFolderId === null ? "active" : ""} onClick={() => setActiveFolderId(null)}>
-              Unfiled
-            </button>
-            {folders.map((f) => (
-              <div key={f.id} className="folder-row">
-                <button className={activeFolderId === f.id ? "active" : ""} onClick={() => setActiveFolderId(f.id)}>
-                  {f.title} ({f.problemCount})
-                </button>
-                <button className="link danger" onClick={() => deleteFolder(f.id)} title="Delete (only if empty)">
-                  ×
-                </button>
-              </div>
-            ))}
-            <form onSubmit={createFolder} className="new-folder-form">
-              <input placeholder="New folder…" value={newFolderTitle} onChange={(e) => setNewFolderTitle(e.target.value)} />
-              <button type="submit">+</button>
-            </form>
-          </div>
+          <ProblemTree
+            folders={folders}
+            problems={problems}
+            openState={openFolders}
+            onOpenChange={(id, isOpen) => setOpenFolders((state) => ({ ...state, [id]: isOpen }))}
+            onSelect={setSelected}
+            onOpenProblem={startEdit}
+            createFolder={createFolder}
+            renameFolder={renameFolder}
+            deleteFolder={deleteFolder}
+            renameProblem={renameProblem}
+            moveProblem={moveProblem}
+            deleteProblem={deleteProblem}
+          />
 
           <div className="problems-main">
-            <button onClick={startCreate}>New problem</button>
+            <div className="problems-main-header">
+              <span className="breadcrumb">{selectedFolder ? selectedFolder.path : "/"}</span>
+              <button onClick={startCreate}>New problem here</button>
+            </div>
+            <p className="muted">
+              Drag problems and folders in the tree to move them, double-click a problem to edit it, F2 to
+              rename. Folders map to directories, so this is the structure the bank will keep when it moves
+              into a Git repo.
+            </p>
             <CardGrid>
-              {problems.map((p) => (
+              {visibleProblems.map((p) => (
                 <PreviewCard
                   key={p.id}
                   title={p.title}
@@ -250,7 +283,11 @@ export default function Problems() {
                   ]}
                 />
               ))}
-              {problems.length === 0 && <div className="muted">No problems yet</div>}
+              {visibleProblems.length === 0 && (
+                <div className="muted">
+                  {selectedFolder ? "This folder has no problems of its own" : "No problems at the top level"}
+                </div>
+              )}
             </CardGrid>
           </div>
         </div>
@@ -288,10 +325,10 @@ export default function Problems() {
             <div>
               <label>Folder</label>
               <select value={draft.folderId ?? ""} onChange={(e) => updateDraft({ folderId: e.target.value || null })}>
-                <option value="">Unfiled</option>
+                <option value="">/ (top level)</option>
                 {folders.map((f) => (
                   <option key={f.id} value={f.id}>
-                    {f.title}
+                    {f.path}
                   </option>
                 ))}
               </select>

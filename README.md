@@ -169,9 +169,18 @@ catch a wrong expected value or an ambiguous problem *before* a candidate
 ever sees it (`POST /problems/:id/validate`) — they're never shown to or
 run for candidates.
 
-Problems also have a flat folder structure (create/delete-if-empty, no
-nesting), a 1–5 star difficulty rating, and a per-interviewer like toggle -
-all straightforward CRUD in `server/src/problems.js`, nothing sandbox-related.
+Problems live in a **nested folder tree** addressed by a materialized path
+(`algorithms/graphs`) — the shape a Git-repo backing wants, since every path
+segment is a directory and a rename is a prefix rewrite over the subtree.
+The Problem bank page (a first-class tab in the top navigation, next to
+Sessions) renders it with `react-arborist`: drag to move problems and
+folders, F2 to rename, double-click a problem to edit it. Ancestors are
+created implicitly (`mkdir -p`), deletion still refuses a folder that isn't
+empty, and folders can be renamed by any interviewer but deleted only by
+their creator. Problems also carry a 1–5 star difficulty rating and a
+per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
+quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
+browsing and authoring the whole bank happens on the Problem bank page.
 
 ## Quick start
 

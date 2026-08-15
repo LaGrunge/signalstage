@@ -8,37 +8,144 @@ export const router = Router();
 
 router.use(requireAuth);
 
-// --- Folders: flat (no nesting), shared across every interviewer like the
-// problems inside them - deleting one only succeeds if it's actually empty,
-// same "ask, don't cascade" rule real folder UIs use. ---
+// --- Folders: a tree addressed by a materialized path ("algorithms/graphs"),
+// shared across every interviewer like the problems inside them. Nesting is
+// implied by the path, so a rename/move is a prefix rewrite over the subtree
+// and the whole thing maps 1:1 onto directories in the Git repo this bank is
+// headed for. Deleting only succeeds if the folder is actually empty (no
+// problems, no subfolders) - the same "ask, don't cascade" rule real folder
+// UIs use. ---
+
+const kMaxSegment = 64;
+const kMaxDepth = 8;
+
+// Folder paths end up as directory names in a Git repo, so they are validated
+// like ones: no empty or dot segments, no separators or control characters
+// inside a segment, bounded depth.
+function normalizePath(raw) {
+  if (typeof raw !== "string") return { error: "path is required" };
+  const segments = raw.split("/").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (segments.length === 0) return { error: "path is required" };
+  if (segments.length > kMaxDepth) return { error: `path is deeper than ${kMaxDepth} levels` };
+  for (const segment of segments) {
+    if (segment === "." || segment === "..") return { error: `"${segment}" is not a valid folder name` };
+    if (segment.length > kMaxSegment) return { error: `folder names are limited to ${kMaxSegment} characters` };
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(segment)) return { error: "folder names cannot contain control characters" };
+  }
+  return { path: segments.join("/") };
+}
+
+// Every ancestor exists as its own row (mkdir -p), so listing the tree never
+// has to invent folders that only exist as a prefix of a deeper one.
+async function ensureAncestors(client, path, userSub) {
+  const segments = path.split("/");
+  for (let i = 1; i < segments.length; i++) {
+    await client.query(
+      "INSERT INTO problem_folders (path, created_by) VALUES ($1, $2) ON CONFLICT (path) DO NOTHING",
+      [segments.slice(0, i).join("/"), userSub]
+    );
+  }
+}
+
 router.get("/folders", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT f.id, f.title, f.created_at, count(p.id)::int AS "problemCount"
+    `SELECT f.id, f.path, f.created_at, (f.created_by = $1) AS mine, count(p.id)::int AS "problemCount"
      FROM problem_folders f LEFT JOIN problems p ON p.folder_id = f.id
-     GROUP BY f.id ORDER BY f.title ASC`
+     GROUP BY f.id ORDER BY f.path ASC`,
+    [req.user.sub]
   );
   res.json(rows);
 });
 
 router.post("/folders", async (req, res) => {
-  const { title } = req.body || {};
-  if (!title?.trim()) return res.status(400).json({ error: "title is required" });
-  const { rows } = await pool.query(
-    "INSERT INTO problem_folders (title, created_by) VALUES ($1, $2) RETURNING id, title, created_at, 0 AS \"problemCount\"",
-    [title.trim(), req.user.sub]
-  );
-  res.status(201).json(rows[0]);
+  const { path, error } = normalizePath(req.body?.path ?? req.body?.title);
+  if (error) return res.status(400).json({ error });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await ensureAncestors(client, path, req.user.sub);
+    const { rows } = await client.query(
+      `INSERT INTO problem_folders (path, created_by) VALUES ($1, $2)
+       ON CONFLICT (path) DO NOTHING
+       RETURNING id, path, created_at, true AS mine, 0 AS "problemCount"`,
+      [path, req.user.sub]
+    );
+    await client.query("COMMIT");
+    if (!rows[0]) return res.status(409).json({ error: "a folder with that path already exists" });
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// Rename and move are the same operation on a materialized path: rewrite this
+// row's path and the prefix of every descendant. Open to any interviewer, like
+// editing a shared problem - only deletion is owner-only.
+router.patch("/folders/:id", async (req, res) => {
+  const { path: nextPath, error } = normalizePath(req.body?.path);
+  if (error) return res.status(400).json({ error });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query("SELECT path FROM problem_folders WHERE id = $1 FOR UPDATE", [
+      req.params.id,
+    ]);
+    if (!current.rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "folder not found" });
+    }
+    const prevPath = current.rows[0].path;
+    if (nextPath === prevPath) {
+      await client.query("ROLLBACK");
+      return res.json({ id: req.params.id, path: prevPath });
+    }
+    // Moving a folder into its own subtree would detach it from the root and
+    // make the prefix rewrite below chase its own tail.
+    if (nextPath.startsWith(prevPath + "/")) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "cannot move a folder into itself" });
+    }
+    const taken = await client.query("SELECT 1 FROM problem_folders WHERE path = $1", [nextPath]);
+    if (taken.rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "a folder with that path already exists" });
+    }
+
+    await ensureAncestors(client, nextPath, req.user.sub);
+    await client.query("UPDATE problem_folders SET path = $1 WHERE id = $2", [nextPath, req.params.id]);
+    await client.query(
+      "UPDATE problem_folders SET path = $1 || substring(path from $3) WHERE path LIKE $2",
+      [nextPath, prevPath + "/%", prevPath.length + 1]
+    );
+    await client.query("COMMIT");
+    res.json({ id: req.params.id, path: nextPath });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 router.delete("/folders/:id", async (req, res) => {
-  const owns = await pool.query("SELECT 1 FROM problem_folders WHERE id = $1 AND created_by = $2", [
+  const folder = await pool.query("SELECT path FROM problem_folders WHERE id = $1 AND created_by = $2", [
     req.params.id,
     req.user.sub,
   ]);
-  if (!owns.rows[0]) return res.status(404).json({ error: "folder not found" });
+  if (!folder.rows[0]) return res.status(404).json({ error: "folder not found" });
 
-  const { rows } = await pool.query("SELECT count(*)::int AS n FROM problems WHERE folder_id = $1", [req.params.id]);
-  if (rows[0].n > 0) {
+  const { rows } = await pool.query(
+    `SELECT (SELECT count(*) FROM problems WHERE folder_id = $1)
+          + (SELECT count(*) FROM problem_folders WHERE path LIKE $2) AS n`,
+    [req.params.id, folder.rows[0].path + "/%"]
+  );
+  if (Number(rows[0].n) > 0) {
     return res.status(409).json({ error: "folder is not empty" });
   }
   const { rowCount } = await pool.query("DELETE FROM problem_folders WHERE id = $1 AND created_by = $2", [
@@ -76,19 +183,25 @@ async function fetchProblemDetail(id, userSub) {
 }
 
 router.get("/", async (req, res) => {
-  const { folderId } = req.query;
+  const { folderId, liked } = req.query;
   const values = [req.user.sub];
   let folderClause = "";
   if (folderId !== undefined) {
     values.push(folderId || null);
     folderClause = `AND folder_id ${folderId ? "= $2" : "IS NULL"}`;
   }
+  // The dashboard's quick-start tab shows only what this interviewer liked -
+  // a shortlist for starting a session, not the bank's full contents (that's
+  // what the Problem bank page and its folder tree are for).
+  const likedClause = liked === "1" || liked === "true"
+    ? "AND EXISTS(SELECT 1 FROM problem_likes WHERE problem_id = problems.id AND user_id = $1)"
+    : "";
   const { rows } = await pool.query(
     `SELECT id, title, description, signature_hint AS "signatureHint", difficulty, folder_id AS "folderId",
             is_shared AS shared, (created_by = $1) AS mine, created_at, updated_at,
             (SELECT count(*)::int FROM problem_likes WHERE problem_id = problems.id) AS "likesCount",
             EXISTS(SELECT 1 FROM problem_likes WHERE problem_id = problems.id AND user_id = $1) AS "likedByMe"
-     FROM problems WHERE (created_by = $1 OR is_shared = true) ${folderClause}
+     FROM problems WHERE (created_by = $1 OR is_shared = true) ${folderClause} ${likedClause}
      ORDER BY is_shared ASC, updated_at DESC`,
     values
   );

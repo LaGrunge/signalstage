@@ -258,10 +258,34 @@ inspection:**
   report the rest as errored" fallback already covers this.
 
 Only `mariadb` has no test harness at all - a single SQL statement doesn't
-fit any "author writes real test code" story. Problems also have a flat
-folder structure (create/delete-if-empty, no nesting), a 1–5 star
-difficulty, and a per-interviewer like toggle - ordinary CRUD, nothing
+fit any "author writes real test code" story. Problems also carry a 1–5 star
+difficulty and a per-interviewer like toggle - ordinary CRUD, nothing
 sandbox-related.
+
+**Folders are a nested tree keyed by a materialized path** (`algorithms/
+graphs`, migration `013_folder_paths.sql`), not the flat titles 009 shipped:
+that is the shape the planned Git-repo backing wants, since each segment is
+a directory, import/export is a straight mapping, and a rename/move is one
+prefix rewrite over the subtree (`PATCH /problems/folders/:id`). Ancestors
+always exist as their own rows (`mkdir -p`) so the tree never has to invent a
+folder that only exists as someone else's prefix. Deleting still refuses a
+non-empty folder (now counting subfolders too), and renaming is open to any
+interviewer while deletion stays owner-only - same split as shared problems.
+
+Two things about the `react-arborist` tree in `ProblemTree.jsx` that were
+found by running it, not by reading it:
+
+- **The node renderer must be a stable component reference.** Passing
+  `{(props) => <TreeNode {...props} cb={cb} />}` to `<Tree>` creates a new
+  component *type* every render, so React unmounts and remounts every row -
+  which silently breaks anything spanning two events on one element
+  (double-click to open a problem stopped working). Callbacks reach the
+  renderer through a context instead.
+- **Expansion state is owned by the page, not the tree.** Opening a problem
+  unmounts the tree (the editor takes the pane), and arborist's internal open
+  state goes with it - so the tree collapsed to the root every time you came
+  back from editing. The page holds the open map and feeds it back as
+  `initialOpenState`.
 
 ## Known gaps / not done
 

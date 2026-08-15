@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, clearSession, copyToClipboard, getUser } from "../lib/api.js";
+import { api, copyToClipboard } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
+import TopNav from "../components/TopNav.jsx";
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState([]);
@@ -17,7 +18,6 @@ export default function Dashboard() {
   const [creatingFromProblem, setCreatingFromProblem] = useState(null);
   const [activeTab, setActiveTab] = useState("sessions"); // sessions | personal | shared | problems
   const navigate = useNavigate();
-  const user = getUser();
   const personalTemplates = templates.filter((t) => t.mine && !t.shared);
   const sharedTemplates = templates.filter((t) => t.shared);
 
@@ -31,8 +31,12 @@ export default function Dashboard() {
     setTemplates(data);
   }
 
+  // Only what this interviewer liked: the dashboard tab is a shortlist for
+  // starting a session fast, deliberately flat and structure-free. Browsing
+  // and authoring the whole bank (folders, tests, solutions) is the Problem
+  // bank page's job.
   async function loadProblems() {
-    const { data } = await api.get("/problems");
+    const { data } = await api.get("/problems?liked=1");
     setProblems(data);
   }
 
@@ -144,25 +148,9 @@ export default function Dashboard() {
     }
   }
 
-  function logout() {
-    clearSession();
-    navigate("/login");
-  }
-
   return (
     <div className="dashboard">
-      <header>
-        <img className="logo" src="/signalstage-logo.png" alt="SignalStage" />
-        <div>
-          <button className="link" onClick={() => navigate("/problems")}>
-            Problem bank
-          </button>
-          <span className="muted">{user?.name}</span>
-          <button className="link" onClick={logout}>
-            Sign out
-          </button>
-        </div>
-      </header>
+      <TopNav />
 
       <form className="new-room" onSubmit={createRoom}>
         <input
@@ -192,7 +180,7 @@ export default function Dashboard() {
           Shared templates
         </button>
         <button className={activeTab === "problems" ? "active" : ""} onClick={() => setActiveTab("problems")}>
-          Problems
+          Liked problems
         </button>
       </div>
 
@@ -285,12 +273,12 @@ export default function Dashboard() {
       {activeTab === "problems" && (
         <>
           <p className="muted">
-            Structured tasks with automated tests - manage the full set (folders, difficulty, description,
-            starter code, reference solutions, tests) in the{" "}
+            The problems you liked, for starting a session in one click. Browse the whole bank, organise it into
+            folders and edit tasks in the{" "}
             <button className="link" onClick={() => navigate("/problems")}>
               Problem bank
             </button>
-            . Click a card to start a new session from it.
+            .
           </p>
           <CardGrid>
             {problems.map((p) => (
@@ -306,7 +294,9 @@ export default function Dashboard() {
                 onClick={() => createFromProblem(p)}
               />
             ))}
-            {problems.length === 0 && <div className="muted">No problems yet</div>}
+            {problems.length === 0 && (
+              <div className="muted">Nothing liked yet - ♥ a problem in the Problem bank and it shows up here</div>
+            )}
           </CardGrid>
         </>
       )}

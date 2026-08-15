@@ -58,6 +58,20 @@ button.link.danger { color: #f28b82; }
 .dashboard header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .dashboard header .logo { height: 140px; width: 140px; object-fit: contain; border-radius: 14px; }
 .dashboard header > div { display: flex; align-items: center; gap: 12px; }
+
+/* Top-level navigation: the two first-class areas of the interviewer surface
+   (sessions, problem bank) sit side by side here rather than one of them
+   hiding as a text link. */
+.top-nav { display: flex; align-items: center; gap: 24px; margin-bottom: 24px; }
+.top-nav .logo { height: 140px; width: 140px; object-fit: contain; border-radius: 14px; }
+.top-nav-tabs { display: flex; gap: 8px; flex: 1; }
+.top-nav-tabs a {
+  padding: 8px 14px; border-radius: 8px; text-decoration: none;
+  color: #8a8aa3; font-size: 15px; font-weight: 500;
+}
+.top-nav-tabs a:hover { color: #e8e8f0; background: #23233a; }
+.top-nav-tabs a.active { color: #e8e8f0; background: #2a2a3d; }
+.top-nav-user { display: flex; align-items: center; gap: 12px; }
 .dashboard h2 { font-size: 16px; margin: 32px 0 12px; }
 .dashboard-tabs { display: flex; gap: 4px; border-bottom: 1px solid #33334a; margin-bottom: 20px; }
 .dashboard-tabs button {
@@ -95,14 +109,37 @@ button.link.danger { color: #f28b82; }
 .lang-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
 
 .problems-layout { display: flex; gap: 24px; align-items: flex-start; }
-.folder-sidebar { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; }
-.folder-sidebar > button { text-align: left; padding: 6px 8px; border-radius: 6px; }
-.folder-sidebar > button.active { background: #2a2a3d; color: #e8e8f0; }
-.folder-row { display: flex; align-items: center; gap: 4px; }
-.folder-row > button:first-child { flex: 1; text-align: left; padding: 6px 8px; border-radius: 6px; }
-.folder-row > button:first-child.active { background: #2a2a3d; color: #e8e8f0; }
-.new-folder-form { display: flex; gap: 4px; margin-top: 8px; }
-.new-folder-form input { flex: 1; min-width: 0; }
+
+/* Problem bank: folder tree (react-arborist) on the left, folder contents on
+   the right. The tree renders folders and problems in one list, so the row
+   styling has to work for both. */
+.problem-tree {
+  flex: 0 0 280px;
+  display: flex; flex-direction: column;
+  height: calc(100vh - 340px); min-height: 320px;
+  border: 1px solid #33334a; border-radius: 8px; padding: 8px;
+}
+.problem-tree-body { flex: 1; min-height: 0; }
+.problem-tree-toolbar { display: flex; gap: 12px; padding: 0 4px 8px; border-bottom: 1px solid #33334a; margin-bottom: 6px; }
+.tree-node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 6px; height: 100%; border-radius: 6px;
+  font-size: 13px; color: #c8c8d8; cursor: pointer; user-select: none;
+}
+.tree-node:hover { background: #23233a; }
+.tree-node.selected { background: #2a2a3d; color: #e8e8f0; }
+.tree-node.drop-target { outline: 1px solid #5865f2; }
+.tree-node-icon { display: flex; color: #7f7fa6; }
+.tree-node.selected .tree-node-icon { color: #9aa0ff; }
+.tree-chevron { width: 10px; font-size: 9px; color: #6f6f8a; transition: transform 0.1s; }
+.tree-chevron.open { transform: rotate(90deg); }
+.tree-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-node-meta { margin-left: auto; font-size: 11px; color: #6f6f8a; }
+.tree-node-input { flex: 1; min-width: 0; font-size: 13px; padding: 1px 4px; }
+
+.problems-main { flex: 1; min-width: 0; }
+.problems-main-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.breadcrumb { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: #8a8aa3; }
 .problems-main { flex: 1; min-width: 0; }
 
 .card-grid {
