@@ -460,6 +460,13 @@ touching `collabServer.js`, `011_playback.sql`, or `Playback.jsx`:
   — if you do that, reconcile it back into a real commit before moving on,
   and diff the box's working tree against `origin/main` first so you don't
   clobber or lose whatever's live there.
+- **A local vite dev/preview server is not a faithful stand-in for the
+  collab websocket.** Its `/collab` proxy drops Yjs traffic to a client that
+  reconnects, so after a page reload that tab silently stops receiving
+  updates - live edits, config toggles, everything. The nginx deployment
+  handles the same reload fine (checked with two candidate tabs against the
+  live URL). Don't chase that as a product bug, and don't write local tests
+  whose assertions depend on a reload.
 - **Verify on the real thing.** This project's history is full of fixes that
   looked right in isolation (a config value, a flag, a code path) but only
   actually got confirmed by hitting the live `/api/execute` and `/lsp/*`
