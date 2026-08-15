@@ -182,6 +182,19 @@ per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
 quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
 browsing and authoring the whole bank happens on the Problem bank page.
 
+## Admins and instance settings
+
+The first account to register is the admin. Admins get two extra tabs -
+**Settings** (how new sessions start: whether candidates may run code, and
+whether copy/paste is blocked) and **Users** (list accounts, create one,
+toggle the admin flag, delete an account along with everything it owns) - and
+may act on any session, template or problem as if it were their own. The last
+remaining admin cannot be demoted or deleted.
+
+Copy/paste blocking is enforced in the candidate's browser, so treat it as
+friction rather than a guarantee: it stops a casual paste of a prepared
+solution, not someone determined to work around it.
+
 ## Session visibility
 
 The Sessions tab lists, by default, the sessions you took part in — the ones

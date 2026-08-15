@@ -351,6 +351,41 @@ found by running it, not by reading it:
   nothing ever prunes the update log. A real cleanup (hard delete or a
   retention sweep) is future work.
 
+## Admins, accounts and instance settings
+
+Two admin-only tabs sit next to Sessions and Problem bank: **Settings**
+(migration `018_app_settings.sql`) and **Users** (`017_admin.sql`,
+`server/src/users.js`). Non-admins see neither the tab nor the endpoints -
+the API refuses them independently, the hidden tab is not the boundary.
+
+- **Admin means "owner of everything"**: sessions, templates, problems and
+  folders all changed from `created_by = $me` to `(created_by = $me OR
+  $isAdmin)` in the queries themselves, so one handler serves both cases.
+- `req.user.isAdmin` is loaded from the database inside `requireAuth`, not
+  carried in the JWT - tokens live 12h and an admin flag that only applies
+  after the next login is exactly the thing nobody remembers. `GET /auth/me`
+  exists so the navigation can refresh the stored session object the same way.
+- **The last admin cannot be demoted or deleted** (server-side): losing it
+  makes accounts and settings unreachable with no route back except psql.
+- The first account to register on a fresh install becomes the admin; this
+  deployment names `aa@aa` in 017 because its earliest row is a smoke-test
+  account.
+- Settings is instance policy, one row (`app_settings`, `id = 1` enforced by
+  a check constraint): how new sessions start (candidate run allowed,
+  copy/paste blocked). `POST /rooms` reads it; both switches stay changeable
+  inside a running session.
+
+## Copy/paste blocking is best effort, on purpose
+
+`rooms.copy_paste_blocked` (migration `016`) mirrors through the same Yjs
+config map as `run_enabled`, so toggling it lands live and applies to anyone
+joining later. Enforcement is a capture-phase `copy`/`cut`/`paste`/drag
+listener on `document` in `Room.jsx`, candidate-side only. That means a
+second window, devtools or a phone camera all still work - it raises the cost
+of pasting in a prepared solution, it does not make it impossible, and the
+banner tells the candidate rather than swallowing the keystroke silently.
+Don't "harden" this into something it can't be.
+
 ## Who can see which session
 
 The dashboard's Sessions tab has a checkbox, on by default: **only sessions I
