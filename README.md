@@ -182,6 +182,55 @@ per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
 quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
 browsing and authoring the whole bank happens on the Problem bank page.
 
+### What ships in the bank
+
+A fresh install already has a populated bank, seeded by migrations
+`010_seed_palindrome_problem.sql` and `020_seed_algorithm_problems.sql`:
+
+```
+algorithms/arrays and hashing   Two Sum, Product of Array Except Self,
+                                Longest Consecutive Sequence
+algorithms/strings              Valid Parentheses, Longest Substring Without
+                                Repeating Characters, Minimum Window Substring
+algorithms/geometry             Vertical Symmetry, Max Points on a Line
+algorithms/graphs               Number of Islands, Course Schedule,
+                                Rotting Oranges
+C++ debug                       C++ Bugs Hunt
+(root)                          Is Palindrome
+```
+
+Each algorithmic problem carries a C++ and a Python starter, a reference
+solution in both, and public + hidden test code in both; "C++ Bugs Hunt" is
+C++ only. They are owned by the instance (`created_by IS NULL`, shared with
+everyone) — any interviewer can edit them, admins can delete them.
+
+"C++ Bugs Hunt" is a different genre from the rest: the starter is a short
+program that *compiles and runs* but reports the wrong numbers, and the task
+is to find every reason why (object slicing, a shadowed base member, an
+unsigned loop counter that can never go negative, an unsigned accumulator
+seed, a range-for that copies, a reference into a vector that reallocates).
+Its tests assert the numbers the fixed program must produce.
+
+The seeds use fixed ids and `ON CONFLICT DO NOTHING`, because migrations
+re-run on every API boot — so **editing a blob in the migration does not
+update an instance that already ran it**. Change a seeded problem through the
+Problem bank UI, or give the replacement a new id.
+
+To check every reference solution still passes its own tests through the real
+Judge0/isolate pipeline (the same thing the authoring form's "Validate"
+button does, minus HTTP and auth):
+
+```bash
+docker compose exec api node scripts/validate-problems.mjs
+docker compose exec api node scripts/validate-problems.mjs --starters
+docker compose exec api node scripts/validate-problems.mjs 'Two Sum'
+```
+
+`--starters` inverts the expectation: it runs the *starter* code and only
+complains if it fails to build or run at all. A starter that doesn't compile
+is a skeleton the candidate has to repair before writing a line of their own,
+and no amount of solution-passes-tests checking will ever catch it.
+
 ## Archived sessions
 
 A finished session can be archived from its card menu (same menu as Rename).

@@ -273,6 +273,29 @@ inspection:**
   simply never executes. `testRunner.js`'s "fewer results than expected →
   report the rest as errored" fallback already covers this.
 
+**The bank ships populated** (`020_seed_algorithm_problems.sql`): a folder
+tree (`algorithms/{arrays and hashing,strings,geometry,graphs}` plus `C++
+debug`) and twelve shared problems, eleven algorithmic with C++ *and* Python
+starters/solutions/tests and one C++ debugging exercise. Two of them replace
+shared *templates* that were being used as problems in practice ("Vertical
+Symmetry"/"Symmetry Solution" and "C++ Bugs Hunt") - a template has no
+description, no hidden tests and no Run/Submit pipeline, so anything meant to
+be graded belongs in the bank. The old templates were left in place, not
+deleted; they belong to the user, not to the instance.
+
+Like every seed here the migration uses fixed ids + `ON CONFLICT DO NOTHING`,
+so **editing one of those blobs never reaches an instance that already ran the
+file** - change the problem through the UI or use a new id.
+
+Nothing in a seeded problem is trustworthy until it has actually been through
+Judge0. `server/scripts/validate-problems.mjs` runs every reference solution
+against its own public+hidden tests via the real pipeline (same work as `POST
+/problems/:id/validate`, minus HTTP/auth, so it can run inside the api
+container against a deployment). `--starters` is the other half and catches
+what solution-validation structurally cannot: a starter that doesn't compile.
+Both were run against the live box for all 23 seeded language variants before
+this landed.
+
 Only `mariadb` has no test harness at all - a single SQL statement doesn't
 fit any "author writes real test code" story. Problems also carry a 1–5 star
 difficulty and a per-interviewer like toggle - ordinary CRUD, nothing
