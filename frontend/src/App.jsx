@@ -4,6 +4,7 @@ import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Problems from "./pages/Problems.jsx";
 import Users from "./pages/Users.jsx";
+import Settings from "./pages/Settings.jsx";
 import Room from "./pages/Room.jsx";
 import Playback from "./pages/Playback.jsx";
 
@@ -38,6 +39,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Users />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <Settings />
           </RequireAuth>
         }
       />

@@ -37,9 +37,14 @@ export default function TopNav() {
           Problem bank
         </NavLink>
         {user?.isAdmin && (
-          <NavLink to="/users" className={({ isActive }) => (isActive ? "active" : "")}>
-            Users
-          </NavLink>
+          <>
+            <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
+              Settings
+            </NavLink>
+            <NavLink to="/users" className={({ isActive }) => (isActive ? "active" : "")}>
+              Users
+            </NavLink>
+          </>
         )}
       </nav>
       <div className="top-nav-user">

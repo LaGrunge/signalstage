@@ -5,6 +5,7 @@ import { LANGUAGES } from "./judge0.js";
 import { getLiveDocument, getRoomParticipantCount, closeRoomConnections } from "./collabServer.js";
 import { getRoomAccess } from "./roomAccess.js";
 import { runProblemTests } from "./testRunner.js";
+import { getSettings } from "./settings.js";
 
 export const router = Router();
 
@@ -63,10 +64,23 @@ router.post("/", requireAuth, async (req, res) => {
     attachedProblemId = problemId;
   }
 
+  // How a session starts is instance policy (Settings tab), not a per-room
+  // decision made at creation time - the interviewer can still flip either
+  // switch once they're in the room.
+  const settings = await getSettings();
   const { rows } = await pool.query(
-    `INSERT INTO rooms (title, language, created_by, initial_code, problem_id)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id, title, language, created_at`,
-    [title?.trim() || defaultTitle, lang, req.user.sub, initialCode, attachedProblemId]
+    `INSERT INTO rooms (title, language, created_by, initial_code, problem_id,
+                        run_enabled, copy_paste_blocked)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, title, language, created_at`,
+    [
+      title?.trim() || defaultTitle,
+      lang,
+      req.user.sub,
+      initialCode,
+      attachedProblemId,
+      settings.defaultRunEnabled,
+      settings.defaultCopyPasteBlocked,
+    ]
   );
   res.status(201).json(rows[0]);
 });

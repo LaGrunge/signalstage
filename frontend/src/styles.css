@@ -87,6 +87,9 @@ button.link.danger { color: #f28b82; }
 .dashboard-tabs button:hover { color: #e8e8f0; }
 .dashboard-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
 .new-room { display: flex; gap: 8px; margin-bottom: 24px; }
+.settings-list { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.settings-list .filter-toggle { margin-bottom: 0; font-size: 14px; color: #c8c8d8; }
+
 .admin-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
 .admin-table th {
   text-align: left; font-size: 12px; text-transform: uppercase; color: #8a8aa3;
