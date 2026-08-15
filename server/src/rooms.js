@@ -430,7 +430,7 @@ router.get("/:id/playback", requireAuth, async (req, res) => {
 router.delete("/:id", requireAuth, async (req, res) => {
   const { rowCount } = await pool.query(
     "UPDATE rooms SET active = false WHERE id = $1 AND (created_by = $2 OR $3)",
-    [req.params.id, req.user.sub]
+    [req.params.id, req.user.sub, req.user.isAdmin]
   );
   if (!rowCount) return res.status(404).json({ error: "room not found" });
   res.status(204).end();
