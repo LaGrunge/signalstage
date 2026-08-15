@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import { api } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
+import { highlightCode } from "../lib/highlight.js";
 import TopNav from "../components/TopNav.jsx";
 import ProblemTree from "../components/ProblemTree.jsx";
 
@@ -49,6 +50,8 @@ export default function Problems() {
   const [folders, setFolders] = useState([]);
   const [selected, setSelected] = useState(null); // tree node data: folder, problem, or null = root
   const [openFolders, setOpenFolders] = useState({}); // survives the tree unmounting while a problem is open
+  const [preview, setPreview] = useState(null); // full problem behind the selected leaf
+  const [previewLang, setPreviewLang] = useState("python");
   const [draft, setDraft] = useState(null);
   const [activeLang, setActiveLang] = useState("python");
   const [saving, setSaving] = useState(false);
@@ -69,6 +72,30 @@ export default function Problems() {
   useEffect(() => {
     reload().catch(() => setError("Failed to load the problem bank"));
   }, []);
+
+  // Selecting a problem in the tree used to show nothing at all, because the
+  // right pane only ever listed a folder's contents. Load the full problem
+  // (the list payload has no starters or test code) and show it there.
+  const selectedProblemId = selected?.kind === "problem" ? selected.problem.id : null;
+  useEffect(() => {
+    if (!selectedProblemId) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get(`/problems/${selectedProblemId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setPreview(data);
+        const withStarter = data.starters.find((s) => s.code.trim());
+        setPreviewLang(withStarter?.language ?? "python");
+      })
+      .catch(() => !cancelled && setError("Failed to load problem"));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProblemId]);
 
   const selectedFolder = selected?.kind === "folder" ? selected : null;
   const selectedFolderId = selectedFolder?.folderId ?? null;
@@ -260,6 +287,16 @@ export default function Problems() {
           />
 
           <div className="problems-main">
+            {preview ? (
+              <ProblemPreview
+                problem={preview}
+                language={previewLang}
+                onLanguage={setPreviewLang}
+                onEdit={() => startEdit(preview)}
+                onLike={() => toggleLike(preview).then(() => setPreview((p) => p && { ...p, likedByMe: !p.likedByMe, likesCount: p.likesCount + (p.likedByMe ? -1 : 1) }))}
+              />
+            ) : (
+            <>
             <div className="problems-main-header">
               <span className="breadcrumb">{selectedFolder ? selectedFolder.path : "/"}</span>
               <button onClick={startCreate}>New problem here</button>
@@ -289,6 +326,8 @@ export default function Problems() {
                 </div>
               )}
             </CardGrid>
+            </>
+            )}
           </div>
         </div>
       )}
@@ -425,6 +464,60 @@ export default function Problems() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// The selected problem, blown up to fill the pane the folder listing would
+// otherwise use - description in full, plus the starter a candidate would
+// actually see, so picking a task doesn't require opening the editor for it.
+function ProblemPreview({ problem, language, onLanguage, onEdit, onLike }) {
+  const languages = problem.starters.filter((s) => s.code.trim()).map((s) => s.language);
+  const starter = problem.starters.find((s) => s.language === language)?.code ?? "";
+  return (
+    <div className="problem-preview">
+      <div className="problem-preview-header">
+        <div>
+          <strong className="problem-preview-title">{problem.title}</strong>
+          <div className="muted">
+            {"★".repeat(problem.difficulty)}
+            {"☆".repeat(5 - problem.difficulty)} · {problem.shared ? "shared" : "personal"} · refreshed{" "}
+            {formatRelativeTime(problem.updated_at)}
+          </div>
+        </div>
+        <div className="problem-preview-actions">
+          <button className="link" onClick={onLike}>
+            {problem.likedByMe ? `♥ Unlike (${problem.likesCount})` : `♡ Like (${problem.likesCount})`}
+          </button>
+          <button onClick={onEdit}>Edit problem</button>
+        </div>
+      </div>
+
+      <div className="problem-preview-body">
+        <label>Description</label>
+        <p className="task-description">{problem.description || "No description yet"}</p>
+        {problem.signatureHint && (
+          <p className="muted">
+            Signature: <code>{problem.signatureHint}</code>
+          </p>
+        )}
+
+        {languages.length > 0 && (
+          <>
+            <div className="lang-tabs">
+              {languages.map((l) => (
+                <button key={l} className={l === language ? "active" : ""} onClick={() => onLanguage(l)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <label>Starter code</label>
+            <pre className="problem-preview-code">
+              <code className="hljs" dangerouslySetInnerHTML={highlightCode(starter, language)} />
+            </pre>
+          </>
+        )}
+      </div>
     </div>
   );
 }
