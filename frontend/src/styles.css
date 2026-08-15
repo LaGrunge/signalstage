@@ -87,6 +87,14 @@ button.link.danger { color: #f28b82; }
 .dashboard-tabs button:hover { color: #e8e8f0; }
 .dashboard-tabs button.active { color: #e8e8f0; border-bottom-color: #5865f2; }
 .new-room { display: flex; gap: 8px; margin-bottom: 24px; }
+.admin-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
+.admin-table th {
+  text-align: left; font-size: 12px; text-transform: uppercase; color: #8a8aa3;
+  font-weight: 500; padding: 6px 10px; border-bottom: 1px solid #33334a;
+}
+.admin-table td { padding: 8px 10px; border-bottom: 1px solid #23233a; }
+.admin-table tr:hover td { background: #1e1e33; }
+
 .filter-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #8a8aa3; margin-bottom: 14px; cursor: pointer; }
 .filter-toggle input { cursor: pointer; }
 .new-room input { flex: 1; }

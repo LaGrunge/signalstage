@@ -110,9 +110,9 @@ router.get("/", requireAuth, async (req, res) => {
 router.post("/:id/end", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE rooms SET ended_at = COALESCE(ended_at, now())
-     WHERE id = $1 AND created_by = $2
+     WHERE id = $1 AND (created_by = $2 OR $3)
      RETURNING ended_at AS "endedAt"`,
-    [req.params.id, req.user.sub]
+    [req.params.id, req.user.sub, req.user.isAdmin]
   );
   if (!rows[0]) return res.status(404).json({ error: "room not found" });
   closeRoomConnections(req.params.id);
@@ -166,10 +166,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
     values.push(problemId || null);
     sets.push(`problem_id = $${values.length}`);
   }
-  values.push(req.params.id, req.user.sub);
+  values.push(req.params.id, req.user.sub, req.user.isAdmin);
 
   const { rows } = await pool.query(
-    `UPDATE rooms SET ${sets.join(", ")} WHERE id = $${values.length - 1} AND created_by = $${values.length}
+    `UPDATE rooms SET ${sets.join(", ")}
+     WHERE id = $${values.length - 2} AND (created_by = $${values.length - 1} OR $${values.length})
      RETURNING id, title, language, active, created_at, last_active_at,
                run_enabled AS "runEnabled", tests_enabled AS "testsEnabled",
                copy_paste_blocked AS "copyPasteBlocked", problem_id AS "problemId"`,
@@ -414,7 +415,7 @@ router.get("/:id/playback", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   const { rowCount } = await pool.query(
-    "UPDATE rooms SET active = false WHERE id = $1 AND created_by = $2",
+    "UPDATE rooms SET active = false WHERE id = $1 AND (created_by = $2 OR $3)",
     [req.params.id, req.user.sub]
   );
   if (!rowCount) return res.status(404).json({ error: "room not found" });

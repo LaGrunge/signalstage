@@ -41,9 +41,10 @@ router.put("/:id", async (req, res) => {
   }
   const { rows } = await pool.query(
     `UPDATE templates SET title = $1, language = $2, code = $3, is_shared = $4, updated_at = now()
-     WHERE id = $5 AND created_by = $6
-     RETURNING id, title, language, code, created_at, updated_at, is_shared AS shared, true AS mine`,
-    [title.trim(), language, code || "", Boolean(shared), req.params.id, req.user.sub]
+     WHERE id = $5 AND (created_by = $6 OR $7)
+     RETURNING id, title, language, code, created_at, updated_at, is_shared AS shared,
+               (created_by = $6) AS mine`,
+    [title.trim(), language, code || "", Boolean(shared), req.params.id, req.user.sub, req.user.isAdmin]
   );
   if (!rows[0]) return res.status(404).json({ error: "template not found" });
   res.json(rows[0]);
@@ -68,12 +69,13 @@ router.patch("/:id", async (req, res) => {
     values.push(Boolean(shared));
     sets.push(`is_shared = $${values.length}`);
   }
-  values.push(req.params.id, req.user.sub);
+  values.push(req.params.id, req.user.sub, req.user.isAdmin);
 
   const { rows } = await pool.query(
     `UPDATE templates SET ${sets.join(", ")}, updated_at = now()
-     WHERE id = $${values.length - 1} AND created_by = $${values.length}
-     RETURNING id, title, language, code, created_at, updated_at, is_shared AS shared, true AS mine`,
+     WHERE id = $${values.length - 2} AND (created_by = $${values.length - 1} OR $${values.length})
+     RETURNING id, title, language, code, created_at, updated_at, is_shared AS shared,
+               (created_by = $${values.length - 1}) AS mine`,
     values
   );
   if (!rows[0]) return res.status(404).json({ error: "template not found" });
@@ -82,8 +84,8 @@ router.patch("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await pool.query(
-    "DELETE FROM templates WHERE id = $1 AND created_by = $2",
-    [req.params.id, req.user.sub]
+    "DELETE FROM templates WHERE id = $1 AND (created_by = $2 OR $3)",
+    [req.params.id, req.user.sub, req.user.isAdmin]
   );
   if (!rowCount) return res.status(404).json({ error: "template not found" });
   res.status(204).end();

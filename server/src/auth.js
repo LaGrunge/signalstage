@@ -19,8 +19,12 @@ router.post("/register", async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
   try {
+    // Whoever registers first on a fresh install is the admin - otherwise a
+    // new deployment has an accounts screen nobody is allowed to open.
     const { rows } = await pool.query(
-      "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name",
+      `INSERT INTO users (email, password_hash, name, is_admin)
+       VALUES ($1, $2, $3, NOT EXISTS (SELECT 1 FROM users))
+       RETURNING id, email, name, is_admin AS "isAdmin"`,
       [email.toLowerCase().trim(), passwordHash, name]
     );
     const user = rows[0];
@@ -42,7 +46,7 @@ router.post("/login", async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    "SELECT id, email, name, password_hash FROM users WHERE email = $1",
+    `SELECT id, email, name, password_hash, is_admin AS "isAdmin" FROM users WHERE email = $1`,
     [email.toLowerCase().trim()]
   );
   const user = rows[0];
@@ -51,7 +55,19 @@ router.post("/login", async (req, res) => {
   }
 
   const token = jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: TOKEN_TTL });
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin } });
+});
+
+// Who am I *right now* - the stored session object is written at login and
+// would otherwise keep claiming yesterday's admin flag for up to a token's
+// lifetime, hiding (or wrongly showing) the admin-only tabs.
+router.get("/me", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, email, name, is_admin AS "isAdmin" FROM users WHERE id = $1`,
+    [req.user.sub]
+  );
+  if (!rows[0]) return res.status(401).json({ error: "account no longer exists" });
+  res.json(rows[0]);
 });
 
 // Deliberately not the standard `Authorization` header: nginx sits in front
@@ -61,16 +77,37 @@ router.post("/login", async (req, res) => {
 // only send one Authorization value per request.
 const TOKEN_HEADER = "x-signalstage-token";
 
-export function requireAuth(req, res, next) {
+// req.user.isAdmin is read from the database rather than carried in the JWT:
+// tokens live 12h, and an admin flag that only takes effect after the next
+// login is the kind of thing nobody remembers when they need it.
+export async function requireAuth(req, res, next) {
   const token = req.headers[TOKEN_HEADER];
   if (!token) return res.status(401).json({ error: "missing token" });
 
+  let claims;
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    claims = jwt.verify(token, JWT_SECRET);
   } catch {
-    res.status(401).json({ error: "invalid or expired token" });
+    return res.status(401).json({ error: "invalid or expired token" });
   }
+
+  try {
+    const { rows } = await pool.query("SELECT is_admin FROM users WHERE id = $1", [claims.sub]);
+    if (!rows[0]) return res.status(401).json({ error: "account no longer exists" });
+    req.user = { ...claims, isAdmin: rows[0].is_admin };
+    next();
+  } catch (err) {
+    console.error("auth lookup failed:", err.message);
+    res.status(500).json({ error: "internal error" });
+  }
+}
+
+// Admin-only routes (accounts, instance settings). Everything else that an
+// admin may do to someone else's resource is expressed inline as
+// "owner or admin" in the query, so the same handler serves both.
+export function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) return res.status(403).json({ error: "admin only" });
+  next();
 }
 
 // For routes candidates hit anonymously (e.g. /execute) but where an

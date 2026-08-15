@@ -134,10 +134,10 @@ router.patch("/folders/:id", async (req, res) => {
 });
 
 router.delete("/folders/:id", async (req, res) => {
-  const folder = await pool.query("SELECT path FROM problem_folders WHERE id = $1 AND created_by = $2", [
-    req.params.id,
-    req.user.sub,
-  ]);
+  const folder = await pool.query(
+    "SELECT path FROM problem_folders WHERE id = $1 AND (created_by = $2 OR $3)",
+    [req.params.id, req.user.sub, req.user.isAdmin]
+  );
   if (!folder.rows[0]) return res.status(404).json({ error: "folder not found" });
 
   const { rows } = await pool.query(
@@ -148,10 +148,10 @@ router.delete("/folders/:id", async (req, res) => {
   if (Number(rows[0].n) > 0) {
     return res.status(409).json({ error: "folder is not empty" });
   }
-  const { rowCount } = await pool.query("DELETE FROM problem_folders WHERE id = $1 AND created_by = $2", [
-    req.params.id,
-    req.user.sub,
-  ]);
+  const { rowCount } = await pool.query(
+    "DELETE FROM problem_folders WHERE id = $1 AND (created_by = $2 OR $3)",
+    [req.params.id, req.user.sub, req.user.isAdmin]
+  );
   if (!rowCount) return res.status(404).json({ error: "folder not found" });
   res.status(204).end();
 });
@@ -288,11 +288,13 @@ router.post("/", async (req, res) => {
 // NULL, e.g. the "Is Palindrome" migration seed) can't be unshared/deleted
 // by anyone via the API as a consequence - by design, same as templates'
 // seeded assets.
-async function getAccess(id, userSub) {
+// An admin counts as the owner throughout - the whole point of the flag is
+// that nothing in the instance is out of reach of the person running it.
+async function getAccess(id, userSub, isAdmin = false) {
   const { rows } = await pool.query("SELECT created_by, is_shared FROM problems WHERE id = $1", [id]);
   const row = rows[0];
   if (!row) return null;
-  const isOwner = row.created_by === userSub;
+  const isOwner = row.created_by === userSub || Boolean(isAdmin);
   if (!isOwner && !row.is_shared) return null;
   return { isOwner, isShared: row.is_shared };
 }
@@ -302,7 +304,7 @@ router.put("/:id", async (req, res) => {
   if (error) return res.status(400).json({ error });
   const { title, description, signatureHint, difficulty, folderId, shared, starters, solutions, testCode } = req.body;
 
-  const access = await getAccess(req.params.id, req.user.sub);
+  const access = await getAccess(req.params.id, req.user.sub, req.user.isAdmin);
   if (!access) return res.status(404).json({ error: "problem not found" });
   if (!access.isOwner && access.isShared && !Boolean(shared)) {
     return res.status(403).json({ error: "only the problem's owner can unshare it" });
@@ -344,7 +346,7 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "difficulty must be between 1 and 5" });
   }
 
-  const access = await getAccess(req.params.id, req.user.sub);
+  const access = await getAccess(req.params.id, req.user.sub, req.user.isAdmin);
   if (!access) return res.status(404).json({ error: "problem not found" });
   if (shared !== undefined && !access.isOwner) {
     return res.status(403).json({ error: "only the problem's owner can change sharing" });
@@ -380,8 +382,8 @@ router.patch("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await pool.query(
-    "DELETE FROM problems WHERE id = $1 AND created_by = $2",
-    [req.params.id, req.user.sub]
+    "DELETE FROM problems WHERE id = $1 AND (created_by = $2 OR $3)",
+    [req.params.id, req.user.sub, req.user.isAdmin]
   );
   if (!rowCount) return res.status(404).json({ error: "problem not found" });
   res.status(204).end();
