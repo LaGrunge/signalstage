@@ -1,8 +1,8 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import { pool } from "./db.js";
 import { requireAuth, requireAdmin } from "./auth.js";
 
-export const router = Router();
+export const router = asyncRouter();
 
 // Readable by any interviewer (the room-creation path and the settings tab
 // both need it), writable only by an admin - this is instance policy, not a

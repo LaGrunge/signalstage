@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import { pool } from "./db.js";
 import { requireAuth, optionalAuth } from "./auth.js";
 import { LANGUAGES } from "./judge0.js";
@@ -7,7 +7,7 @@ import { getRoomAccess } from "./roomAccess.js";
 import { runProblemTests } from "./testRunner.js";
 import { getSettings } from "./settings.js";
 
-export const router = Router();
+export const router = asyncRouter();
 
 const LANGUAGE_KEYS = new Set(LANGUAGES.map((l) => l.key));
 const PREVIEW_LENGTH = 400;

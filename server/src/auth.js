@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { pool } from "./db.js";
@@ -6,7 +6,7 @@ import { pool } from "./db.js";
 const JWT_SECRET = process.env.JWT_SECRET;
 const TOKEN_TTL = "12h";
 
-export const router = Router();
+export const router = asyncRouter();
 
 router.post("/register", async (req, res) => {
   const { email, password, name } = req.body || {};

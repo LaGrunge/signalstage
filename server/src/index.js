@@ -35,6 +35,16 @@ app.use("/users", usersRouter);
 app.use("/settings", settingsRouter);
 app.use("/", judge0Router);
 
+// Last resort for anything a handler threw or rejected with (the routers are
+// asyncRouter()s, so a rejected promise lands here instead of killing the
+// process). Nothing about the error goes to the client - the log is where it
+// belongs, and a stack trace in a JSON body is a gift to nobody.
+app.use((err, req, res, next) => {
+  console.error(`${req.method} ${req.originalUrl} failed:`, err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "internal error" });
+});
+
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log(`API listening on :${port}`));
 

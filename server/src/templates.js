@@ -1,8 +1,8 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import { pool } from "./db.js";
 import { requireAuth } from "./auth.js";
 
-export const router = Router();
+export const router = asyncRouter();
 
 router.use(requireAuth);
 

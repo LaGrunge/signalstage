@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import axios from "axios";
 import { pool } from "./db.js";
 import { optionalAuth } from "./auth.js";
@@ -127,7 +127,7 @@ export async function submitToJudge0(languageKey, sourceCode, stdin) {
   return submitToJudge0Raw(lang, sourceCode, stdin);
 }
 
-export const router = Router();
+export const router = asyncRouter();
 
 router.get("/languages", (_req, res) => {
   res.json(LANGUAGES.map(({ key, label }) => ({ key, label })));

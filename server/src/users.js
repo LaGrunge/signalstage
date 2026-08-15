@@ -1,11 +1,11 @@
-import { Router } from "express";
+import { asyncRouter } from "./asyncRouter.js";
 import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 import { requireAuth, requireAdmin } from "./auth.js";
 
 // Account management, admin-only end to end. Interviewers who are not admins
 // have no business listing colleagues' addresses, so even the read is gated.
-export const router = Router();
+export const router = asyncRouter();
 
 router.use(requireAuth, requireAdmin);
 
