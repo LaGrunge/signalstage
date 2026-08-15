@@ -143,6 +143,41 @@ already bit us here:
   the color formats `isSafeCssColor` allows. If you touch this again, don't
   reintroduce string-suffix alpha tricks on a color of unknown format.
 
+## Line endings in the shared document (CollabEditor.jsx)
+
+**`\r` must never enter `ydoc.getText("code")`.** Monaco keeps a single EOL
+for the whole buffer and rewrites everything written into it to match, while
+`y-monaco` maps model offsets 1:1 onto `Y.Text` indices (it feeds
+`change.rangeOffset` straight into `ytext.delete/insert`). So the moment one
+peer's buffer normalises to CRLF while the shared text holds bare LF, every
+edit that peer makes lands one character too far right *per line above the
+cursor*, and the drift grows with the file.
+
+This wrecked the 2026-08-13 interview (room `ddcf9bfe`): the candidate pasted
+a CRLF snippet, his buffer later flipped to CRLF, and his `struct Gamer` →
+`class Gamer` edit landed four characters off as `struclasser`. **The failure
+is invisible to the person causing it** - their own Monaco buffer stays
+coherent, only everyone else watches the file turn to mush - so nobody in the
+room can be expected to notice and reload. Three layers now guard it, keep
+all three: EOL pinned to LF on mount, a `\r` scrub (on mount, on any peer
+inserting one, and server-side in `onLoadDocument` so a document persisted
+with `\r` heals), and a 5s watchdog comparing `model.getValue()` against
+`ytext.toString()` that rebuilds the binding on any mismatch.
+
+Verified end-to-end with two headless-Chromium peers against the live URL:
+flip one peer's model to CRLF mid-session, keep typing, assert both documents
+stay identical - plus a control run asserting the watchdog never fires during
+normal two-way editing (a spurious resync yanks the cursor). Unit-level
+checks of the scrub are not enough; the interesting half is Monaco's own
+normalisation.
+
+Forensics, if a session is ever suspected of diverging again: replay
+`yjs_updates` for the room through Yjs and observe the per-update deltas
+(`ytext.observe` while applying) - that gives every op's landing offset. A
+victim's *own* view can be reconstructed by replaying the same ops at their
+raw offsets into a separate string seeded with the CRLF-normalised text,
+which is how the candidate's real code was recovered intact.
+
 ## Connection health (Room.jsx)
 
 Born from a real interview where a flaky link left both sides silently
