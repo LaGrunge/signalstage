@@ -182,6 +182,21 @@ per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
 quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
 browsing and authoring the whole bank happens on the Problem bank page.
 
+### Languages
+
+C++ is the default and comes first everywhere - new sessions, new problems,
+and the problem bank's language tabs. The title and language fields above the
+dashboard's tabs are used by every way of starting a session, not only the
+blank one: starting a liked problem takes both (a template brings its own
+language). If the problem has no starter for the chosen language it says so
+and offers to start anyway with an empty editor.
+
+Changing a running session's language changes the starter code with it, when
+a problem is attached. That replaces the shared editor, so it only happens
+silently while the buffer is still the current language's starter (or empty);
+once anything has been typed it asks first, and declining leaves both the code
+and the language as they were.
+
 ### What ships in the bank
 
 A fresh install already has a populated bank, seeded by migrations

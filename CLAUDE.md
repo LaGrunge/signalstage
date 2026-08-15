@@ -407,6 +407,56 @@ the API refuses them independently, the hidden tab is not the boundary.
   copy/paste blocked). `POST /rooms` reads it; both switches stay changeable
   inside a running session.
 
+## Routes must not be able to kill the process
+
+Express 4 does not catch a rejected promise coming out of an async handler:
+it escapes as an unhandled rejection and **exits the process**. That process
+also runs Hocuspocus, so one unexpected query error drops every live
+interview, not just the request that hit it. Build routers with
+`asyncRouter()` (`server/src/asyncRouter.js`), never bare `Router()`; the
+error middleware at the end of `index.js` turns what it forwards into a 500.
+
+This was not theoretical: `PATCH /problems/folders/:id` passed the substring
+offset for its subtree prefix rewrite as an untyped parameter, so Postgres
+resolved `substring(text FROM $3)` to the **regular expression** form instead
+of the offset one, the pattern `"11"` matched nothing, and the NULL that came
+back violated `problem_folders.path`'s NOT NULL. The user-visible symptom was
+"renaming a folder does nothing" - the API had died, so there was no error to
+show. Two lessons, both now encoded: cast integer parameters that feed
+`substring` (`$3::int`), and never let a handler's rejection reach the top.
+
+## Languages
+
+`frontend/src/lib/languages.js` owns the order, the display names and
+`DEFAULT_LANGUAGE` for everywhere the UI names a language itself; the room's
+and dashboard's `<select>`s take their labels from `GET /languages` instead,
+which carries the toolchain version. **C++ is first and is the default**
+everywhere - new sessions, new problems, the problem bank's tab strips.
+
+Two behaviours that are easy to break:
+
+- **The dashboard's title and language fields feed every way of starting a
+  session**, not just "Create blank session" - a template brings its own
+  language, but a problem's session takes both. Starting a liked problem in a
+  language it has no starter for is allowed (empty editor) but asks first,
+  which is why `GET /problems` returns `starterLanguages`.
+- **Switching a session's language switches the starter code with it**
+  (`changeLanguage` in `Room.jsx`), because leaving one language's skeleton
+  behind while the toolbar claims another is how you compile C++ with a Python
+  toolchain. The editor is the shared document, so it replaces silently only
+  while the buffer still *is* the current language's starter (or is empty),
+  and asks first once anything has been typed; declining leaves the language
+  alone too. `insertTemplate` deliberately calls `setSessionLanguage` rather
+  than `changeLanguage` - it just replaced the code on purpose and must not
+  have the attached problem's starter undo that.
+
+The authoring form edits one language tab at a time by *updating* that
+language's entry, so `withEveryLanguage` pads a loaded problem out to all five
+testable languages - otherwise typing into a language the problem doesn't have
+yet silently does nothing, and a C++-only problem can never gain a Python
+starter. `saveDraft` strips the still-empty ones back out, so a C++-only
+problem stays C++-only.
+
 ## Copy/paste blocking is best effort, on purpose
 
 `rooms.copy_paste_blocked` (migration `016`) mirrors through the same Yjs

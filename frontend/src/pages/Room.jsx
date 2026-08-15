@@ -8,7 +8,7 @@ import { CardGrid, PreviewCard } from "../components/Cards.jsx";
 import { api, collabUrl, getUser, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { highlightCode } from "../lib/highlight.js";
-import { DEFAULT_LANGUAGE } from "../lib/languages.js";
+import { DEFAULT_LANGUAGE, languageLabel } from "../lib/languages.js";
 
 const FILE_EXTENSIONS = { cpp: "cpp", python: "py", go: "go", java: "java", bash: "sh", mariadb: "sql" };
 
@@ -327,9 +327,46 @@ export default function Room() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [roomId, ydoc, saveAllowedForMe]);
 
-  function changeLanguage(lang) {
+  // Switching the session's language has to switch the skeleton with it -
+  // leaving a C++ starter behind while the toolbar says Python is how you end
+  // up compiling one language's code with another's compiler. But the editor
+  // is the shared document, so this can destroy work: replace silently only
+  // while the buffer still *is* the current language's starter (or is empty),
+  // and ask first once anything has been typed. Declining leaves the language
+  // alone too - switching but keeping the old code is the confusing
+  // half-state, not a safe fallback.
+  function setSessionLanguage(lang) {
     ydoc.getMap("config").set("language", lang);
     setLanguage(lang);
+  }
+
+  function changeLanguage(lang) {
+    if (lang === language) return;
+    const starters = problem?.starters ?? [];
+    const next = starters.find((s) => s.language === lang);
+    const ytext = ydoc.getText("code");
+    const current = ytext.toString();
+
+    if (next) {
+      const currentStarter = starters.find((s) => s.language === language)?.code;
+      const untouched = !current.trim() || current.trim() === (currentStarter ?? "").trim();
+      if (
+        !untouched &&
+        !window.confirm(
+          `Switch this session to ${languageLabel(lang)}?\n\n` +
+            `The editor will be replaced with the ${languageLabel(lang)} starter for "${problem.title}", ` +
+            "and the code currently in it will be lost."
+        )
+      ) {
+        return;
+      }
+      ydoc.transact(() => {
+        ytext.delete(0, ytext.length);
+        ytext.insert(0, next.code);
+      });
+    }
+
+    setSessionLanguage(lang);
   }
 
   async function toggleRunEnabled() {
@@ -375,6 +412,7 @@ export default function Room() {
         description: full.description,
         signatureHint: full.signatureHint,
         testCode: full.testCode.map((t) => ({ language: t.language, publicCode: t.publicCode })),
+        starters: full.starters.map((s) => ({ language: s.language, code: s.code })),
       });
       setTestResults(null);
       const starter = full.starters.find((s) => s.language === language);
@@ -399,7 +437,9 @@ export default function Room() {
       ytext.delete(0, ytext.length);
       ytext.insert(0, template.code);
     });
-    if (template.language !== language) changeLanguage(template.language);
+    // Not changeLanguage(): the code was just deliberately replaced, and
+    // swapping in the attached problem's starter would undo exactly that.
+    if (template.language !== language) setSessionLanguage(template.language);
     setLeftPanel(null);
   }
 

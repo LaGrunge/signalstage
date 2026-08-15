@@ -320,7 +320,15 @@ router.get("/:id/problem", async (req, res) => {
     `SELECT language, public_code AS "publicCode" FROM problem_test_code WHERE problem_id = $1`,
     [room.problemId]
   );
-  res.json({ ...problem, testCode });
+  // Starters are candidate-facing by definition (one of them seeded the
+  // editor already), and the room needs the others so that switching the
+  // session's language switches the skeleton with it.
+  const { rows: starters } = await pool.query(
+    `SELECT language, starter_code AS code FROM problem_starters
+      WHERE problem_id = $1 AND btrim(starter_code) <> ''`,
+    [room.problemId]
+  );
+  res.json({ ...problem, testCode, starters });
 });
 
 // mode: "run" (public test code only, fast feedback) vs "submit" (public
