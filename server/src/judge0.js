@@ -15,12 +15,24 @@ import { getRoomAccess } from "./roomAccess.js";
 // sandbox section), so memory_limit is RLIMIT_AS - address space, not RSS -
 // and a process's own binary/libstdc++/stack eat ~60MB of it before main().
 export const LANGUAGES = [
-  // The shared "query" template (a deliberately naive SQL-engine exercise)
-  // needs ~1.7GB just to build its 3M-row dataset - 3M heap-allocated
-  // 511-char keys - so it died with bad_alloc inside fillData() before a
-  // candidate could get to the actual task. Its brute-force nested loop is
-  // 3e9 string comparisons too, hence the CPU/wall room: the point is to
-  // measure the naive version and then beat it.
+  // Sized around the shared "query" template (a deliberately naive
+  // SQL-engine exercise). It needs ~1.7GB just to build its 3M-row dataset -
+  // 3M heap-allocated 511-char keys - so under Judge0's 1.5GB default it
+  // died with bad_alloc inside fillData(), before the candidate's own code
+  // mattered at all.
+  //
+  // The template as shipped still cannot finish, and that is deliberate:
+  // measured unoptimised (Judge0 compiles without -O), its brute-force
+  // nested loop is ~4:50 wall and peaks at ~8.5GB, because it materialises
+  // up to 3M joined rows that each copy a 511-char key. No setting under
+  // judge0.conf's ceilings (4GB / 30s) would let that through, and raising
+  // those to fit would hand one submission half the box for five minutes.
+  //
+  // 3GB is chosen to sit above what a *correct* solution needs (~1.7-2GB:
+  // hash-join and aggregate on the fly, never materialising the join) and
+  // below what the naive one does. So the wall a candidate hits now tells
+  // them something - don't materialise the intermediate result - instead of
+  // being a sandbox limit they can't reason about.
   { key: "cpp", label: "C++ (GCC 15, C++26)", judge0Id: 54, memoryLimit: 3145728, cpuTimeLimit: 15, wallTimeLimit: 20 },
   { key: "python", label: "Python (3.14)", judge0Id: 71 },
   { key: "go", label: "Go (1.26)", judge0Id: 60 },

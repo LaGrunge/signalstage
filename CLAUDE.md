@@ -113,6 +113,22 @@ undo. Full narrative is in README's "Ubuntu 26.04 vs. Debian buster" section
    the longest per-language `wallTimeLimit` (MariaDB's 25s), or legitimately
    slow-but-successful runs get killed client-side before Judge0 replies.
 
+6. **Per-run limits are per language, in `judge0.js`'s `LANGUAGES` /
+   `TEST_LANGUAGES`, not in `judge0.conf`.** Judge0's own defaults are 1.5GB
+   / 5s CPU / 10s wall; C++ asks for 3GB / 15s / 20s, everything else takes
+   the defaults, and `judge0.conf`'s MAX_* ceilings (4GB / 30s / 30s) stay
+   untouched. Since isolate runs on rlimits here, `memory_limit` is
+   `RLIMIT_AS` — address space, not RSS — and ~60MB of it goes to the binary,
+   libstdc++ and stack before `main()`: measured, a C++ program gets ~3008MB
+   of touchable heap out of the 3072MB limit.
+
+   The C++ numbers are sized around the shared "query" template and the
+   reasoning is in a comment there — the short version is that the naive
+   template is *meant* to be unrunnable (~8.5GB, ~4:50 unoptimised), while a
+   correct solution that never materialises the join fits in ~1.7–2GB. If
+   someone later "fixes" the template by shrinking its dataset, that was
+   considered and deliberately declined.
+
 **Before believing any change to this area actually works**, run
 `tests/system-check.mjs` against the live URL — it does a real compile+run
 and a real LSP `initialize` handshake per language, not just a health check.
