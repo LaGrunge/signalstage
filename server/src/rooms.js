@@ -92,14 +92,19 @@ router.post("/", requireAuth, async (req, res) => {
 // sat in on, and reviewers need to find one they didn't.
 router.get("/", requireAuth, async (req, res) => {
   const all = req.query.scope === "all";
+  // Archived sessions are a separate list, not a filter on the main one: the
+  // dashboard shows one or the other, never both mixed together.
+  const archived = req.query.archived === "1" || req.query.archived === "true";
   const { rows } = await pool.query(
     `SELECT r.id, r.title, r.language, r.active, r.created_at, r.last_active_at, r.ended_at,
-            r.initial_code, r.last_code, (r.created_by = $1) AS mine, u.name AS "ownerName"
+            r.archived_at AS "archivedAt", r.initial_code, r.last_code,
+            (r.created_by = $1) AS mine, u.name AS "ownerName"
      FROM rooms r
      JOIN users u ON u.id = r.created_by
      WHERE r.active = true
+       AND r.archived_at IS ${archived ? "NOT NULL" : "NULL"}
        ${all ? "" : "AND (r.created_by = $1 OR EXISTS (SELECT 1 FROM room_participants p WHERE p.room_id = r.id AND p.user_id = $1))"}
-     ORDER BY r.last_active_at DESC`,
+     ORDER BY ${archived ? "r.archived_at" : "r.last_active_at"} DESC`,
     [req.user.sub]
   );
   res.json(
@@ -137,6 +142,42 @@ router.post("/:id/end", requireAuth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// Archiving is for sessions that are over: it freezes ended_at (an idle room
+// counts as ended only while nobody rejoins, and an archived one must not
+// quietly come back to life) and moves the room to the archived tab. Same
+// hands as renaming - the owner, or an admin.
+router.post("/:id/archive", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT last_active_at, ended_at FROM rooms
+     WHERE id = $1 AND active = true AND (created_by = $2 OR $3)`,
+    [req.params.id, req.user.sub, req.user.isAdmin]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  if (!effectivelyEnded({ ...rows[0], id: req.params.id })) {
+    return res.status(409).json({ error: "only a finished session can be archived" });
+  }
+
+  const { rows: updated } = await pool.query(
+    `UPDATE rooms SET archived_at = COALESCE(archived_at, now()), ended_at = COALESCE(ended_at, now())
+     WHERE id = $1 RETURNING archived_at AS "archivedAt", ended_at AS "endedAt"`,
+    [req.params.id]
+  );
+  closeRoomConnections(req.params.id);
+  res.json(updated[0]);
+});
+
+// The way back, for an archive click that was a mistake. The room stays
+// ended - unarchiving returns it to the main list, it does not reopen it.
+router.delete("/:id/archive", requireAuth, async (req, res) => {
+  const { rowCount } = await pool.query(
+    `UPDATE rooms SET archived_at = NULL
+     WHERE id = $1 AND active = true AND (created_by = $2 OR $3)`,
+    [req.params.id, req.user.sub, req.user.isAdmin]
+  );
+  if (!rowCount) return res.status(404).json({ error: "room not found" });
+  res.status(204).end();
+});
+
 router.patch("/:id", requireAuth, async (req, res) => {
   const { title, runEnabled, testsEnabled, copyPasteBlocked, problemId } = req.body || {};
   if ([title, runEnabled, testsEnabled, copyPasteBlocked, problemId].every((v) => v === undefined)) {
@@ -152,6 +193,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
       [problemId, req.user.sub]
     );
     if (!rows[0]) return res.status(404).json({ error: "problem not found" });
+  }
+
+  // An archived session is a record of what happened, so its title stays put -
+  // otherwise the thing you filed under one name is something else next month.
+  const { rows: target } = await pool.query("SELECT archived_at FROM rooms WHERE id = $1", [req.params.id]);
+  if (target[0]?.archived_at) {
+    return res.status(409).json({ error: "an archived session cannot be changed" });
   }
 
   const sets = [];
@@ -428,6 +476,14 @@ router.get("/:id/playback", requireAuth, async (req, res) => {
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {
+  // Archiving is what an owner does with a finished session; throwing the
+  // archive away is an admin's call, so an interviewer can't quietly erase
+  // the record of an interview they ran.
+  const { rows: target } = await pool.query("SELECT archived_at FROM rooms WHERE id = $1", [req.params.id]);
+  if (target[0]?.archived_at && !req.user.isAdmin) {
+    return res.status(403).json({ error: "only an admin can delete an archived session" });
+  }
+
   const { rowCount } = await pool.query(
     "UPDATE rooms SET active = false WHERE id = $1 AND (created_by = $2 OR $3)",
     [req.params.id, req.user.sub, req.user.isAdmin]

@@ -441,6 +441,14 @@ touching `collabServer.js`, `011_playback.sql`, or `Playback.jsx`:
 - **`yjs_updates` ordering rides on BIGSERIAL**, and flushes are chained
   per-room (`flushChains` in `collabServer.js`) precisely so overlapping
   batch INSERTs can't interleave id assignment. Don't parallelize them.
+- **Archiving is a third state, on top of the two below.** `archived_at`
+  moves a finished session to its own dashboard tab: it keeps playback, drops
+  out of the main list, can no longer be renamed (`PATCH /rooms/:id` refuses),
+  and only an admin may delete it - an interviewer archives the record of an
+  interview they ran, they don't get to erase it. Archiving also stamps
+  `ended_at` if the room was only *derived* as ended (idle >12h), so an
+  archived session can't come back to life when someone opens the link.
+  Unarchiving returns it to the main list without reopening it.
 - **Session end is two distinct states.** `ended_at` (POST `/rooms/:id/end`)
   locks the room (onAuthenticate rejects, live connections kicked via
   `closeConnections`, `getRoomAccess` blocks run/tests) but keeps it on the

@@ -182,6 +182,14 @@ per-interviewer like toggle; the dashboard's "Liked problems" tab is a flat
 quick-start shortlist of exactly those likes (`GET /problems?liked=1`), while
 browsing and authoring the whole bank happens on the Problem bank page.
 
+## Archived sessions
+
+A finished session can be archived from its card menu (same menu as Rename).
+Archived sessions live in their own dashboard tab with the same "Only sessions
+I took part in" filter, keep their playback, and can't be renamed; only an
+admin can delete one. Unarchive puts it back in the main list - it does not
+reopen the room.
+
 ## Admins and instance settings
 
 The first account to register is the admin. Admins get two extra tabs -
