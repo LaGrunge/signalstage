@@ -46,10 +46,20 @@ export default function Users() {
   }
 
   async function deleteUser(user) {
-    const owned = user.sessionCount
-      ? `\n\nThis also deletes ${user.sessionCount} session(s) they created, with their playback.`
-      : "";
-    if (!window.confirm(`Delete ${user.name} <${user.email}>?${owned}`)) return;
+    // Everything they created cascades from users.id - say so item by item,
+    // because none of it comes back and "sessions" alone undersells it.
+    const owned = [
+      [user.sessionCount, "session", "with their playback"],
+      [user.templateCount, "template", "including shared ones"],
+      [user.problemCount, "problem", "including shared ones"],
+      [user.folderCount, "problem folder", ""],
+    ]
+      .filter(([n]) => n > 0)
+      .map(([n, noun, note]) => `- ${n} ${noun}${n === 1 ? "" : "s"}${note ? ` (${note})` : ""}`);
+    const detail = owned.length
+      ? `\n\nThis permanently deletes everything they created:\n${owned.join("\n")}`
+      : "\n\nThey have created nothing that would be deleted with them.";
+    if (!window.confirm(`Delete ${user.name} <${user.email}>?${detail}`)) return;
     setError("");
     try {
       await api.delete(`/users/${user.id}`);

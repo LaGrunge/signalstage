@@ -11,8 +11,15 @@ router.use(requireAuth, requireAdmin);
 
 router.get("/", async (_req, res) => {
   const { rows } = await pool.query(
+    // Deleting an account cascades to everything it created (rooms and their
+    // playback, templates, problems, folders - see the FKs on users.id), so
+    // the UI has to be able to say what exactly is about to go, not just
+    // "sessions".
     `SELECT u.id, u.email, u.name, u.is_admin AS "isAdmin", u.created_at,
-            (SELECT count(*)::int FROM rooms r WHERE r.created_by = u.id AND r.active) AS "sessionCount"
+            (SELECT count(*)::int FROM rooms r WHERE r.created_by = u.id AND r.active) AS "sessionCount",
+            (SELECT count(*)::int FROM templates t WHERE t.created_by = u.id) AS "templateCount",
+            (SELECT count(*)::int FROM problems p WHERE p.created_by = u.id) AS "problemCount",
+            (SELECT count(*)::int FROM problem_folders f WHERE f.created_by = u.id) AS "folderCount"
      FROM users u ORDER BY u.created_at ASC`
   );
   res.json(rows);
@@ -31,7 +38,8 @@ router.post("/", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO users (email, password_hash, name, is_admin) VALUES ($1, $2, $3, $4)
-       RETURNING id, email, name, is_admin AS "isAdmin", created_at, 0 AS "sessionCount"`,
+       RETURNING id, email, name, is_admin AS "isAdmin", created_at,
+                 0 AS "sessionCount", 0 AS "templateCount", 0 AS "problemCount", 0 AS "folderCount"`,
       [email.toLowerCase().trim(), passwordHash, name.trim(), Boolean(isAdmin)]
     );
     res.status(201).json(rows[0]);
