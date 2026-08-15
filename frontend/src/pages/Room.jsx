@@ -45,6 +45,7 @@ export default function Room() {
   const [submissions, setSubmissions] = useState([]);
   const [leftPanel, setLeftPanel] = useState(null); // null | "templates" | "versions" | "problems"
   const [viewingSubmission, setViewingSubmission] = useState(null);
+  const [viewingTemplate, setViewingTemplate] = useState(null);
   const [runEnabled, setRunEnabled] = useState(true);
   const [savedAt, setSavedAt] = useState(null);
   const [problem, setProblem] = useState(null);
@@ -337,6 +338,7 @@ export default function Room() {
 
   function insertTemplate(template) {
     if (!window.confirm(`Replace the current code with "${template.title}"?`)) return;
+    setViewingTemplate(null);
     const ytext = ydoc.getText("code");
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
@@ -617,7 +619,7 @@ export default function Room() {
                         language={t.language}
                         preview={t.code}
                         footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
-                        onClick={() => insertTemplate(t)}
+                        onClick={() => setViewingTemplate(t)}
                       />
                     ))}
                     {personalTemplates.length === 0 && <div className="muted">No personal templates yet</div>}
@@ -631,7 +633,7 @@ export default function Room() {
                         language={t.language}
                         preview={t.code}
                         footer={`refreshed ${formatRelativeTime(t.updated_at)}`}
-                        onClick={() => insertTemplate(t)}
+                        onClick={() => setViewingTemplate(t)}
                       />
                     ))}
                     {sharedTemplates.length === 0 && <div className="muted">No shared templates yet</div>}
@@ -801,6 +803,37 @@ export default function Room() {
           )}
         </div>
       </div>
+
+      {viewingTemplate && (
+        <div className="modal-overlay" onClick={() => setViewingTemplate(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>
+                {viewingTemplate.title} · {viewingTemplate.language} · refreshed{" "}
+                {formatRelativeTime(viewingTemplate.updated_at)}
+              </strong>
+              <button onClick={() => insertTemplate(viewingTemplate)}>Insert into session</button>
+              <button className="link" onClick={() => setViewingTemplate(null)}>
+                Close
+              </button>
+            </div>
+            <div className="modal-body">
+              {/* Single column, unlike the submission viewer: a template has no
+                  result to show, and the point of reading one here is copying a
+                  piece of it by hand without overwriting the live session. */}
+              <div className="modal-code wide">
+                <label>Code</label>
+                <pre>
+                  <code
+                    className="hljs"
+                    dangerouslySetInnerHTML={highlightCode(viewingTemplate.code, viewingTemplate.language)}
+                  />
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewingSubmission && (
         <div className="modal-overlay" onClick={() => setViewingSubmission(null)}>
