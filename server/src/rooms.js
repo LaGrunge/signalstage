@@ -331,6 +331,62 @@ router.get("/:id/problem", async (req, res) => {
   res.json({ ...problem, testCode, starters });
 });
 
+// Interviewer-only: the reference solutions for the room's attached problem,
+// so an interviewer can look at one mid-session without leaving the room or
+// digging through the problem bank in another tab.
+//
+// requireAuth IS the boundary here, and it is the whole of it: a candidate
+// has no token at all (their access is the room link), so there is no
+// candidate-shaped request that reaches this handler. Alongside hidden test
+// code, this is the part of a problem that must never be served on the
+// unauthenticated /:id/problem route above.
+router.get("/:id/problem/solutions", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT problem_id AS "problemId" FROM rooms WHERE id = $1 AND active = true`,
+    [req.params.id]
+  );
+  const room = rows[0];
+  if (!room) return res.status(404).json({ error: "room not found" });
+  if (!room.problemId) return res.json([]);
+
+  const { rows: solutions } = await pool.query(
+    `SELECT id, language, title, code FROM problem_solutions
+      WHERE problem_id = $1 ORDER BY language, title`,
+    [room.problemId]
+  );
+  res.json(solutions);
+});
+
+// Interviewer notes: one markdown document per room. Readable and writable by
+// any signed-in interviewer, on the same reasoning as /submissions and
+// /playback - a co-interviewer sitting in on the session is exactly who else
+// would be taking them. Editable after the session ends, and after it is
+// archived: writing up an impression afterwards is the main point of having
+// notes at all, and an interviewer who cannot do it here will do it in a text
+// file where nobody else will ever find it.
+router.get("/:id/notes", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT r.notes, r.notes_updated_at AS "updatedAt", u.name AS "updatedBy"
+       FROM rooms r LEFT JOIN users u ON u.id = r.notes_updated_by
+      WHERE r.id = $1`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  res.json(rows[0]);
+});
+
+router.put("/:id/notes", requireAuth, async (req, res) => {
+  const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+  const { rows } = await pool.query(
+    `UPDATE rooms SET notes = $2, notes_updated_at = now(), notes_updated_by = $3
+      WHERE id = $1
+      RETURNING notes_updated_at AS "updatedAt"`,
+    [req.params.id, notes, req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "room not found" });
+  res.json(rows[0]);
+});
+
 // mode: "run" (public test code only, fast feedback) vs "submit" (public
 // AND hidden test code). Both are persisted to test_runs - submit is the
 // graded attempt, run clicks feed the playback timeline. Mirrors the

@@ -348,12 +348,13 @@ found by running it, not by reading it:
 - **Automated tests: no mariadb harness.** Tests are real per-language test
   code (see "Interview problems and automated tests" above); mariadb has no
   harness at all since a single SQL statement doesn't fit that model.
-- **No markdown rendering for problem descriptions.** `Room.jsx`'s Task
-  panel renders `problem.description` as plain preformatted text
-  (`white-space: pre-wrap`), not parsed markdown - no `react-markdown` (or
-  equivalent) dependency has been added yet. Fine for plain-text task
-  descriptions; add the dependency if descriptions start using real
-  markdown syntax that needs to render, not just line breaks.
+- **Problem descriptions are still not markdown, on purpose.** A renderer
+  now exists (`components/Markdown.jsx`, react-markdown + remark-gfm, added
+  for interviewer notes), but `Room.jsx`'s Task panel keeps rendering
+  `problem.description` as preformatted plain text (`white-space: pre-wrap`).
+  The seeded descriptions are written *as* preformatted text - aligned
+  example blocks, hand-drawn tables - and markdown would collapse exactly
+  that. Switching them over means rewriting every seeded description first.
 - **No LSP for MariaDB.** `sql-language-server` (the only maintained generic
   SQL LSP on npm) crashes on startup on every currently-installable version
   — a real bug in that package, not this codebase. Monaco still gets SQL
@@ -508,6 +509,37 @@ Access, once other people's rooms can appear in the list:
 If the set of interviewers ever stops being small and trusted, the read side
 is the part to revisit - narrowing playback to participants is a one-line
 `EXISTS` in `rooms.js`.
+
+## Interviewer notes and reference solutions
+
+Two interviewer-only surfaces in the room's left sidebar (`Room.jsx`), plus a
+notes panel on the playback page.
+
+- **Notes are one markdown document per room** (`rooms.notes`, migration
+  `025`), edited in the room and read back from `/playback/:id`. They are
+  **deliberately not in the room's Yjs document**, where every other piece of
+  shared session state lives: that document is replicated to the candidate's
+  browser in full, so anything in it is readable from devtools. Notes go over
+  `GET`/`PUT /rooms/:id/notes` behind `requireAuth` instead. Don't "unify"
+  them into the Yjs config map.
+- **`requireAuth` is the entire boundary** for both notes and
+  `GET /rooms/:id/problem/solutions`, and that is enough: a candidate has no
+  token at all, their access is the room link. Reference solutions and hidden
+  test code are the two things the unauthenticated `/rooms/:id/problem` route
+  must never carry, and neither is selected by its queries at all.
+- **Notes stay editable after the session ends and after it is archived**,
+  unlike renaming. Writing up an impression afterwards is most of the point;
+  an interviewer who can't do it here does it in a text file nobody will
+  find. Any signed-in interviewer may read and write them, same reasoning as
+  `/submissions` and `/playback` - a co-interviewer is exactly who else takes
+  notes. The sidebar buttons themselves still only show for the room's owner
+  or an admin, matching every other panel.
+- `NotesPanel.jsx` autosaves on an 800ms debounce **and flushes on unmount**
+  (`pendingRef`) - closing the panel or leaving the page unmounts it, and
+  without the flush the last stroke of typing before the click would be lost.
+- `Markdown.jsx` does not enable `rehype-raw`, so raw HTML in a note is not
+  rendered. Notes are written by one account and read by another; keep it
+  that way.
 
 ## Session playback (recording + replay)
 

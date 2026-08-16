@@ -282,6 +282,27 @@ complains if it fails to build or run at all. A starter that doesn't compile
 is a skeleton the candidate has to repair before writing a line of their own,
 and no amount of solution-passes-tests checking will ever catch it.
 
+## In-session interviewer tools
+
+Two buttons on the room's left sidebar, both interviewer-only and both
+invisible to the candidate:
+
+- **💡 Reference solution** — shows the attached problem's reference
+  solutions, opening on the session's own language and offering the others as
+  tabs when the problem has them. They are fetched from an authenticated
+  endpoint only when the panel is opened; the candidate-facing problem
+  payload never carries them (nor the hidden test code).
+- **📝 Notes** — one markdown notes document per session, with a Write/Preview
+  toggle, autosaved as you type. Notes are read back afterwards from the
+  playback page (its own **📝 Notes** button, side by side with the
+  recording), and stay editable there: writing up an impression after the
+  session is most of the point. Any signed-in interviewer can read and write
+  a session's notes, the same as its submissions and its playback.
+
+Notes live behind an authenticated REST endpoint rather than in the room's
+shared Yjs document — that document is replicated to the candidate's browser
+in full, so anything in it is readable from their devtools.
+
 ## Archived sessions
 
 A finished session can be archived from its card menu (same menu as Rename).

@@ -5,10 +5,11 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/pro
 import Ansi from "ansi-to-react";
 import CollabEditor from "../components/CollabEditor.jsx";
 import { CardGrid, PreviewCard } from "../components/Cards.jsx";
+import NotesPanel from "../components/NotesPanel.jsx";
 import { api, collabUrl, getUser, useIsAdmin } from "../lib/api.js";
 import { formatRelativeTime } from "../lib/time.js";
 import { highlightCode } from "../lib/highlight.js";
-import { DEFAULT_LANGUAGE, languageLabel } from "../lib/languages.js";
+import { DEFAULT_LANGUAGE, languageLabel, orderLanguages } from "../lib/languages.js";
 
 const FILE_EXTENSIONS = { cpp: "cpp", python: "py", go: "go", java: "java", bash: "sh", mariadb: "sql" };
 
@@ -44,7 +45,9 @@ export default function Room() {
   const [templates, setTemplates] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [submissions, setSubmissions] = useState([]);
-  const [leftPanel, setLeftPanel] = useState(null); // null | "templates" | "versions" | "problems"
+  // null | "templates" | "versions" | "problems" | "solutions" | "notes"
+  const [leftPanel, setLeftPanel] = useState(null);
+  const [solutions, setSolutions] = useState(null);
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [viewingTemplate, setViewingTemplate] = useState(null);
   const [runEnabled, setRunEnabled] = useState(true);
@@ -94,6 +97,16 @@ export default function Room() {
       .get(`/rooms/${roomId}/problem`)
       .then(({ data }) => setProblem(data))
       .catch(() => setProblem(null));
+  }
+
+  // Interviewer-only, and fetched only when the panel is opened: the
+  // reference solutions never sit in this page's state unless an interviewer
+  // asked for them.
+  function refreshSolutions() {
+    return api
+      .get(`/rooms/${roomId}/problem/solutions`)
+      .then(({ data }) => setSolutions(data))
+      .catch(() => setSolutions([]));
   }
 
   function refreshSubmissions() {
@@ -466,6 +479,7 @@ export default function Room() {
     }
     setLeftPanel(panel);
     if (panel === "versions") refreshSubmissions();
+    if (panel === "solutions") refreshSolutions();
   }
 
   async function runCode() {
@@ -694,6 +708,22 @@ export default function Room() {
             >
               🧪
             </button>
+            {problem && (
+              <button
+                className={`icon-btn ${leftPanel === "solutions" ? "active" : ""}`}
+                onClick={() => openPanel("solutions")}
+                title="Reference solution"
+              >
+                💡
+              </button>
+            )}
+            <button
+              className={`icon-btn ${leftPanel === "notes" ? "active" : ""}`}
+              onClick={() => openPanel("notes")}
+              title="My notes"
+            >
+              📝
+            </button>
           </div>
         )}
 
@@ -704,6 +734,8 @@ export default function Room() {
                 {leftPanel === "templates" && "Insert template"}
                 {leftPanel === "versions" && "Code versions"}
                 {leftPanel === "problems" && "Attach a problem"}
+                {leftPanel === "solutions" && `Reference solution · ${languageLabel(language)}`}
+                {leftPanel === "notes" && "Notes"}
               </strong>
               {leftPanel === "templates" && (
                 <button className="link" onClick={saveAsTemplate} disabled={savingTemplate}>
@@ -765,6 +797,8 @@ export default function Room() {
                   )}
                 </CardGrid>
               )}
+              {leftPanel === "solutions" && <SolutionsPanel solutions={solutions} language={language} />}
+              {leftPanel === "notes" && <NotesPanel roomId={roomId} />}
               {leftPanel === "versions" && (
                 <CardGrid>
                   {submissions.map((s) => (
@@ -1004,4 +1038,51 @@ const CLIPBOARD_NOTICE = {
 function initials(name) {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
+}
+
+// The problem's reference solutions, for the interviewer, mid-session. Opens
+// on the session's own language - which is the one the candidate is writing -
+// and offers the others as tabs when the problem has them.
+//
+// These are the one part of a problem that is deliberately absent from the
+// candidate-facing /rooms/:id/problem response; they arrive here from a
+// separate authenticated endpoint, and only once this panel is opened.
+function SolutionsPanel({ solutions, language }) {
+  const [shown, setShown] = useState(language);
+
+  if (solutions === null) return <div className="muted">Loading…</div>;
+  if (solutions.length === 0) {
+    return <div className="muted">This problem has no reference solution saved.</div>;
+  }
+
+  const availableLanguages = orderLanguages([...new Set(solutions.map((s) => s.language))]);
+  const forShown = solutions.filter((s) => s.language === shown);
+
+  return (
+    <>
+      {availableLanguages.length > 1 && (
+        <div className="lang-tabs">
+          {availableLanguages.map((l) => (
+            <button key={l} className={shown === l ? "active" : ""} onClick={() => setShown(l)}>
+              {languageLabel(l)}
+            </button>
+          ))}
+        </div>
+      )}
+      {forShown.length === 0 && (
+        <div className="muted">
+          No reference solution in {languageLabel(shown)} — this problem has one in{" "}
+          {availableLanguages.map(languageLabel).join(", ")}.
+        </div>
+      )}
+      {forShown.map((s) => (
+        <div key={s.id}>
+          <h3 className="side-panel-subheading">{s.title || "Reference solution"}</h3>
+          <pre className="task-example">
+            <code className="hljs" dangerouslySetInnerHTML={highlightCode(s.code, s.language)} />
+          </pre>
+        </div>
+      ))}
+    </>
+  );
 }

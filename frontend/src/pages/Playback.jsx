@@ -7,6 +7,7 @@ import { api } from "../lib/api.js";
 import { highlightCode } from "../lib/highlight.js";
 import { buildTimeAxis } from "../lib/playbackTime.js";
 import { MONACO_LANGUAGE } from "../components/CollabEditor.jsx";
+import NotesPanel from "../components/NotesPanel.jsx";
 
 const SPEEDS = [1, 2, 4, 8];
 // A backward scrub rebuilds from the nearest checkpoint, so this bounds the
@@ -42,6 +43,7 @@ export default function Playback() {
   const [playhead, setPlayhead] = useState(0); // compressed ms
   const [text, setText] = useState("");
   const [viewingEvent, setViewingEvent] = useState(null);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Replay machinery lives in refs - it mutates per animation frame and must
   // not retrigger React renders beyond the text/playhead state updates.
@@ -214,6 +216,9 @@ export default function Playback() {
           <strong>{meta.title}</strong>
           <span className="status offline">playback</span>
         </div>
+        <button className={`link ${notesOpen ? "active" : ""}`} onClick={() => setNotesOpen((o) => !o)}>
+          📝 Notes
+        </button>
         <button className="link" onClick={() => navigate("/dashboard")}>
           ← Back to dashboard
         </button>
@@ -225,14 +230,27 @@ export default function Playback() {
         </div>
       )}
 
-      <div className="pb-editor">
-        <Editor
-          height="100%"
-          theme="vs-dark"
-          language={MONACO_LANGUAGE[meta.language] || "plaintext"}
-          value={hasRecording ? text : meta.lastCode ?? ""}
-          options={{ readOnly: true, fontSize: 14, minimap: { enabled: false }, automaticLayout: true }}
-        />
+      <div className="pb-main">
+        <div className="pb-editor">
+          <Editor
+            height="100%"
+            theme="vs-dark"
+            language={MONACO_LANGUAGE[meta.language] || "plaintext"}
+            value={hasRecording ? text : meta.lastCode ?? ""}
+            options={{ readOnly: true, fontSize: 14, minimap: { enabled: false }, automaticLayout: true }}
+          />
+        </div>
+        {notesOpen && (
+          <aside className="pb-notes">
+            <div className="side-panel-header">
+              <strong>Notes</strong>
+              <button className="link" onClick={() => setNotesOpen(false)}>
+                Close
+              </button>
+            </div>
+            <NotesPanel roomId={roomId} />
+          </aside>
+        )}
       </div>
 
       <div className="pb-controls">
