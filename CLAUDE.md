@@ -273,10 +273,18 @@ inspection:**
   simply never executes. `testRunner.js`'s "fewer results than expected →
   report the rest as errored" fallback already covers this.
 
-**The bank ships populated** (`020_seed_algorithm_problems.sql`): a folder
-tree (`algorithms/{arrays and hashing,strings,geometry,graphs}` plus `C++
-debug`) and twelve shared problems, eleven algorithmic with C++ *and* Python
-starters/solutions/tests and one C++ debugging exercise. Two of them replace
+**The bank ships populated** (`020`, `022`, `023`, `024`): a folder tree
+(`algorithms/{arrays and hashing,strings,geometry,graphs,bits and bytes,binary
+search,dynamic programming,intervals and sorting,stacks and queues}` and
+`debug/{C++,Go,Java,Python,Bash}`) and 40 shared problems - 23 algorithmic
+with C++ *and* Python starters/solutions/tests, and 17 debugging exercises,
+each in one language only. See README's "What ships in the bank" for the list
+and for which language subtlety each debugging problem is about. Every bug in
+those is *defined* behaviour with one specific wrong answer: undefined
+behaviour would be the more realistic exercise and the less reliable test, and
+that trade was made deliberately. `023` also created the `debug/` parent and
+moved 020's top-level `C++ debug` folder under it as `debug/C++`, guarded on
+the folder still being where 020 put it. Two of 020's problems replace
 shared *templates* that were being used as problems in practice ("Vertical
 Symmetry"/"Symmetry Solution" and "C++ Bugs Hunt") - a template has no
 description, no hidden tests and no Run/Submit pipeline, so anything meant to

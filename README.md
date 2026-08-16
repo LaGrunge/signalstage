@@ -200,31 +200,64 @@ and the language as they were.
 ### What ships in the bank
 
 A fresh install already has a populated bank, seeded by migrations
-`010_seed_palindrome_problem.sql` and `020_seed_algorithm_problems.sql`:
+`010`, `020`, `022`, `023` and `024`:
 
 ```
-algorithms/arrays and hashing   Two Sum, Product of Array Except Self,
-                                Longest Consecutive Sequence
-algorithms/strings              Valid Parentheses, Longest Substring Without
-                                Repeating Characters, Minimum Window Substring
-algorithms/geometry             Vertical Symmetry, Max Points on a Line
-algorithms/graphs               Number of Islands, Course Schedule,
-                                Rotting Oranges
-C++ debug                       C++ Bugs Hunt
-(root)                          Is Palindrome
+algorithms/arrays and hashing     Two Sum, Product of Array Except Self,
+                                  Longest Consecutive Sequence
+algorithms/strings                Valid Parentheses, Longest Substring Without
+                                  Repeating Characters, Minimum Window Substring
+algorithms/geometry               Vertical Symmetry, Max Points on a Line
+algorithms/graphs                 Number of Islands, Course Schedule,
+                                  Rotting Oranges
+algorithms/bits and bytes         Single Number, Reverse Bits, Decode Varints
+algorithms/binary search          Search in Rotated Sorted Array,
+                                  Minimum Eating Speed
+algorithms/dynamic programming    Climbing Stairs, Coin Change,
+                                  Longest Increasing Subsequence
+algorithms/intervals and sorting  Merge Intervals, Minimum Meeting Rooms
+algorithms/stacks and queues      Min Stack, Daily Temperatures
+debug/C++                         C++ Bugs Hunt, Erasing While You Iterate,
+                                  Prices and Rounding, Sliced Shapes,
+                                  The Same Call Twice
+debug/Go                          Slices Share Their Array, Words, Bytes and
+                                  Map Order, Defer, Shadow, Reject
+debug/Java                        Equal But Not equals, The List You Were
+                                  Given, Numbers That Do Not Add Up
+debug/Python                      The Default That Remembers, Copies,
+                                  Truthiness and Suffixes, Iterating While
+                                  You Change It
+debug/Bash                        Everything Is A String Until It Is Not,
+                                  Where Did My Value Go, Tests That Always Pass
+(root)                            Is Palindrome
 ```
 
 Each algorithmic problem carries a C++ and a Python starter, a reference
-solution in both, and public + hidden test code in both; "C++ Bugs Hunt" is
-C++ only. They are owned by the instance (`created_by IS NULL`, shared with
-everyone) — any interviewer can edit them, admins can delete them.
+solution in both, and public + hidden test code in both; each debugging
+problem is in its own language only. They are owned by the instance
+(`created_by IS NULL`, shared with everyone) — any interviewer can edit them,
+admins can delete them.
 
-"C++ Bugs Hunt" is a different genre from the rest: the starter is a short
-program that *compiles and runs* but reports the wrong numbers, and the task
-is to find every reason why (object slicing, a shadowed base member, an
-unsigned loop counter that can never go negative, an unsigned accumulator
-seed, a range-for that copies, a reference into a vector that reallocates).
-Its tests assert the numbers the fixed program must produce.
+The `debug/` problems are a different genre from the rest: the starter is a
+short program that *compiles and runs* but answers wrongly, and the task is to
+find every reason why. Each one collects bugs of deliberately different kinds
+— C++ object slicing, a non-override that looks like an override, iterator
+and index invalidation, integer division and floating-point equality, static
+state that survives a call; Go slice aliasing, `copy()` into a nil
+destination, a named result rewritten by a `defer`, `:=` shadowing inside a
+loop, map iteration order, bytes vs. runes; Java `equals`/`hashCode`,
+reference identity on strings and boxed Integers, `Arrays.asList`,
+modification during a for-each; Python mutable default arguments,
+late-binding closures, `[[0] * n] * m`, `rstrip` as a character set, banker's
+rounding, a consumed generator; Bash unquoted expansion, subshells in a
+pipeline, `local` masking `$?`, `>` inside `[ ]`, octal from a leading zero.
+Their tests assert what the fixed program must produce — every bug in them is
+defined behaviour with one specific wrong answer, not undefined behaviour
+that happens to look wrong on this compiler.
+
+Only `debug/C++`'s "C++ Bugs Hunt" predates this set; migration `023` created
+the `debug/` parent and moved 020's top-level `C++ debug` folder under it,
+leaving the problem itself alone.
 
 A migration runs once per database and is then recorded in
 `schema_migrations`, so **editing a blob in a seed does not update an instance
